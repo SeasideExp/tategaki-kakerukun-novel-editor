@@ -1752,7 +1752,7 @@
 
     if (hf.useFooter) {
       const footerY = geom.trimY + geom.trimH - mmToPx(footerDistMm, dpi);
-      const showNombreInFooter = placement === 'footer' || !hf.useHeader || hf.useFooter;
+      const showNombreInFooter = placement === 'footer' || !hf.useHeader;
       const showCommentInFooter =
         !hf.useHeader && placement === 'footer' && !suppressCommentOnThisPage;
       renderBarAtY(footerY, showNombreInFooter, showCommentInFooter);
