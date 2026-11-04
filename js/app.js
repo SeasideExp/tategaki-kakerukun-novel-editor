@@ -4089,7 +4089,8 @@
     const insertPos = App.activePageIndex + 1;
     App.pages.splice(insertPos, 0, newPage);
     App.selectedPageIds.push(newPage.id);
-    repaginateAllLinkedSections({ fromPageContents: pageType !== 'blank' });
+    // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
+    repaginateAllLinkedSections({ fromPageContents: false });
     App.activePageIndex = insertPos;
     syncEditorToCurrentPage({ forceReloadText: true });
     renderAll();
@@ -4115,7 +4116,8 @@
     const insertPos = App.activePageIndex + 1;
     App.pages.splice(insertPos, 0, copy);
     App.selectedPageIds.push(copy.id);
-    repaginateAllLinkedSections({ fromPageContents: true });
+    // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
+    repaginateAllLinkedSections({ fromPageContents: false });
     App.activePageIndex = insertPos;
     syncEditorToCurrentPage({ forceReloadText: true });
     renderAll();
@@ -4143,7 +4145,8 @@
     if (App.activePageIndex >= App.pages.length) {
       App.activePageIndex = App.pages.length - 1;
     }
-    repaginateAllLinkedSections({ fromPageContents: removed.type !== 'blank' });
+    // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
+    repaginateAllLinkedSections({ fromPageContents: false });
     syncEditorToCurrentPage({ forceReloadText: true });
     renderAll();
     showToast('ページを削除しました');
@@ -4162,7 +4165,8 @@
     const moved = App.pages.splice(fromIndex, 1)[0];
     App.pages.splice(toIndex, 0, moved);
     App.activePageIndex = toIndex;
-    repaginateAllLinkedSections({ fromPageContents: true });
+    // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
+    repaginateAllLinkedSections({ fromPageContents: false });
     syncEditorToCurrentPage({ forceReloadText: true });
     renderAll();
   }
@@ -5109,7 +5113,8 @@
             if (Array.isArray(parsed.pages) && parsed.pages.length > 0) {
               App.pages = parsed.pages;
               App.activePageIndex = 0;
-              repaginateAllLinkedSections({ fromPageContents: true });
+              // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
+              repaginateAllLinkedSections({ fromPageContents: false });
               App.selectedPageIds = App.pages.map(function (p) {
                 return p.id;
               });
