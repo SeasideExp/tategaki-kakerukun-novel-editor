@@ -868,7 +868,7 @@
   }
 
   global.TategakiState = {
-    APP_VERSION: '1.00',
+    APP_VERSION: '1.02',
     APP_LAST_UPDATED: '2026年11月4日',
     PAPER_PRESETS: PAPER_PRESETS,
     FONT_PRESETS: FONT_PRESETS,
