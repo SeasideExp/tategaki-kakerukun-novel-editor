@@ -53,6 +53,17 @@
     const centralHeaders = [];
     let offset = 0;
 
+    // 保存時の現在日時をMS-DOS Date/Time形式に変換
+    const now = new Date();
+    const year = Math.max(1980, now.getFullYear());
+    const month = now.getMonth() + 1;
+    const day = now.getDate();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const seconds = Math.floor(now.getSeconds() / 2);
+    const dosTime = ((hours & 0x1f) << 11) | ((minutes & 0x3f) << 5) | (seconds & 0x1f);
+    const dosDate = (((year - 1980) & 0x7f) << 9) | ((month & 0x0f) << 5) | (day & 0x1f);
+
     entries.forEach(function (entry) {
       const nameBytes = stringToUtf8Bytes(entry.name);
       const dataBytes =
@@ -67,8 +78,8 @@
       lv.setUint16(4, 20, true); // version needed
       lv.setUint16(6, 0x0800, true); // UTF-8 flag
       lv.setUint16(8, 0, true); // compression: 0 (STORE)
-      lv.setUint16(10, 0, true); // mod time
-      lv.setUint16(12, 0x5521, true); // mod date
+      lv.setUint16(10, dosTime, true); // mod time (saved time)
+      lv.setUint16(12, dosDate, true); // mod date (saved date)
       lv.setUint32(14, crc, true);
       lv.setUint32(18, size, true);
       lv.setUint32(22, size, true);
@@ -87,8 +98,8 @@
       cv.setUint16(6, 20, true);
       cv.setUint16(8, 0x0800, true);
       cv.setUint16(10, 0, true);
-      cv.setUint16(12, 0, true);
-      cv.setUint16(14, 0x5521, true);
+      cv.setUint16(12, dosTime, true);
+      cv.setUint16(14, dosDate, true);
       cv.setUint32(16, crc, true);
       cv.setUint32(20, size, true);
       cv.setUint32(24, size, true);
@@ -215,7 +226,155 @@
     }, 500);
   }
 
-  function canvasToPngUint8Array(canvas) {
+  function adler32(bytes) {
+    let a = 1;
+    let b = 0;
+    const MOD = 65521;
+    let i = 0;
+    const len = bytes.length;
+    while (i < len) {
+      const end = Math.min(i + 5550, len);
+      while (i < end) {
+        a += bytes[i++];
+        b += a;
+      }
+      a %= MOD;
+      b %= MOD;
+    }
+    return ((b << 16) | a) >>> 0;
+  }
+
+  async function compressZlibBytes(rawBytes) {
+    if (typeof CompressionStream !== 'undefined') {
+      try {
+        const cs = new CompressionStream('deflate');
+        const writer = cs.writable.getWriter();
+        writer.write(rawBytes);
+        writer.close();
+        const ab = await new Response(cs.readable).arrayBuffer();
+        return new Uint8Array(ab);
+      } catch (e) {
+        // CompressionStream失敗時は無圧縮zlibブロックへフォールバック
+      }
+    }
+    // Pure-JS Zlib (RFC 1950) Stored Blocks フォールバック
+    const maxBlock = 65535;
+    const numBlocks = Math.max(1, Math.ceil(rawBytes.length / maxBlock));
+    const out = new Uint8Array(2 + numBlocks * 5 + rawBytes.length + 4);
+    let pos = 0;
+    out[pos++] = 0x78; // CMF
+    out[pos++] = 0x01; // FLG
+    for (let b = 0; b < numBlocks; b++) {
+      const start = b * maxBlock;
+      const end = Math.min(start + maxBlock, rawBytes.length);
+      const blockLen = end - start;
+      const isLast = b === numBlocks - 1 ? 1 : 0;
+      const nlen = ~blockLen & 0xffff;
+      out[pos++] = isLast;
+      out[pos++] = blockLen & 0xff;
+      out[pos++] = (blockLen >>> 8) & 0xff;
+      out[pos++] = nlen & 0xff;
+      out[pos++] = (nlen >>> 8) & 0xff;
+      out.set(rawBytes.subarray(start, end), pos);
+      pos += blockLen;
+    }
+    const adler = adler32(rawBytes);
+    const dv = new DataView(out.buffer);
+    dv.setUint32(pos, adler, false);
+    return out;
+  }
+
+  function makePngChunk(typeFourCC, dataBytes) {
+    const data = dataBytes || new Uint8Array(0);
+    const chunk = new Uint8Array(12 + data.length);
+    const view = new DataView(chunk.buffer);
+    view.setUint32(0, data.length, false);
+    for (let i = 0; i < 4; i++) {
+      chunk[4 + i] = typeFourCC.charCodeAt(i) & 0xff;
+    }
+    if (data.length > 0) {
+      chunk.set(data, 8);
+    }
+    const crc = crc32(chunk.subarray(4, 8 + data.length));
+    view.setUint32(8 + data.length, crc, false);
+    return chunk;
+  }
+
+  /**
+   * CanvasからPNGバイナリ(Uint8Array)を生成する
+   * ・isGrayscale === true の場合: 8bit グレースケール (Color Type = 0, 1チャンネル) PNGとして出力
+   * ・isGrayscale === false の場合: RGBカラーPNGとして出力
+   * ・dpi指定時は pHYs チャンク（解像度情報）も記録
+   */
+  async function canvasToPngUint8Array(canvas, isGrayscale, dpi) {
+    if (isGrayscale) {
+      const width = canvas.width;
+      const height = canvas.height;
+      const ctx = canvas.getContext('2d');
+      const rgba = ctx.getImageData(0, 0, width, height).data;
+
+      // 各走査線: 先頭1バイト(Filter=0: None) + widthバイト(8bit Grayscale値)
+      const rowStride = width + 1;
+      const rawScanlines = new Uint8Array(height * rowStride);
+      for (let y = 0; y < height; y++) {
+        const rowOffset = y * rowStride;
+        rawScanlines[rowOffset] = 0; // Filter type 0 (None)
+        const rgbaRowBase = y * width * 4;
+        for (let x = 0; x < width; x++) {
+          const p = rgbaRowBase + x * 4;
+          const r = rgba[p];
+          const g = rgba[p + 1];
+          const b = rgba[p + 2];
+          const a = rgba[p + 3];
+          const lum = r === g && g === b ? r : Math.round(r * 0.299 + g * 0.587 + b * 0.114);
+          const gray = a === 255 ? lum : Math.round((lum * a + 255 * (255 - a)) / 255);
+          rawScanlines[rowOffset + 1 + x] = gray;
+        }
+      }
+
+      const idatCompressed = await compressZlibBytes(rawScanlines);
+
+      // IHDR (13 bytes): width(4), height(4), bitDepth=8(1), colorType=0:Grayscale(1), comp=0, filter=0, interlace=0
+      const ihdrData = new Uint8Array(13);
+      const ihdrView = new DataView(ihdrData.buffer);
+      ihdrView.setUint32(0, width, false);
+      ihdrView.setUint32(4, height, false);
+      ihdrData[8] = 8; // Bit depth = 8
+      ihdrData[9] = 0; // Color type = 0 (Grayscale)
+      ihdrData[10] = 0;
+      ihdrData[11] = 0;
+      ihdrData[12] = 0;
+
+      // pHYs (9 bytes): pixels per meter X(4), Y(4), unit=1:meter(1)
+      const ppm = Math.round(((dpi || 600) * 1000) / 25.4);
+      const physData = new Uint8Array(9);
+      const physView = new DataView(physData.buffer);
+      physView.setUint32(0, ppm, false);
+      physView.setUint32(4, ppm, false);
+      physData[8] = 1;
+
+      const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+      const ihdrChunk = makePngChunk('IHDR', ihdrData);
+      const physChunk = makePngChunk('pHYs', physData);
+      const idatChunk = makePngChunk('IDAT', idatCompressed);
+      const iendChunk = makePngChunk('IEND', new Uint8Array(0));
+
+      const totalLen =
+        sig.length + ihdrChunk.length + physChunk.length + idatChunk.length + iendChunk.length;
+      const out = new Uint8Array(totalLen);
+      let pos = 0;
+      out.set(sig, pos);
+      pos += sig.length;
+      out.set(ihdrChunk, pos);
+      pos += ihdrChunk.length;
+      out.set(physChunk, pos);
+      pos += physChunk.length;
+      out.set(idatChunk, pos);
+      pos += idatChunk.length;
+      out.set(iendChunk, pos);
+      return out;
+    }
+
     return new Promise(function (resolve) {
       canvas.toBlob(function (blob) {
         blob.arrayBuffer().then(function (ab) {
@@ -255,7 +414,7 @@
         grayscaleK100: grayscale
       });
 
-      const pngBytes = await canvasToPngUint8Array(offCanvas);
+      const pngBytes = await canvasToPngUint8Array(offCanvas, grayscale, dpi);
       const pageNumStr = String((settings.headerFooter.startPageNumber || 1) + i).padStart(3, '0');
       zipEntries.push({
         name: 'page_' + pageNumStr + '.png',
@@ -1387,6 +1546,46 @@
   }
 
   /**
+   * 連続する本文連動区間（sectionPages）のテキストをページ跨ぎ途中改行なしで1つに結合するヘルパー
+   */
+  function combineLinkedBodySectionRaw(sectionPages) {
+    if (!Array.isArray(sectionPages) || sectionPages.length === 0) return '';
+    const allHaveRawSlice = sectionPages.every(function (sp) {
+      return typeof sp.rawSlice === 'string';
+    });
+    if (allHaveRawSlice) {
+      return sectionPages
+        .map(function (sp) {
+          return sp.rawSlice;
+        })
+        .join('');
+    }
+    const nonBlank = sectionPages.filter(function (sp) {
+      return sp && !sp.isBlankAdjustment && sp.type !== 'blank';
+    });
+    let combined = '';
+    for (let i = 0; i < nonBlank.length; i++) {
+      const p = nonBlank[i];
+      const c = p.content || '';
+      combined += c;
+      if (i < nonBlank.length - 1) {
+        const nextContent = nonBlank[i + 1].content || '';
+        const endsMid =
+          Boolean(p.endsMidParagraph) ||
+          Boolean(nonBlank[i + 1].startsMidParagraph) ||
+          (typeof p.charEnd === 'number' &&
+            typeof p.contentEnd === 'number' &&
+            p.charEnd === p.contentEnd &&
+            c.length > 0);
+        if (!endsMid && !/\n$/.test(c) && !/^\n/.test(nextContent)) {
+          combined += '\n';
+        }
+      }
+    }
+    return combined;
+  }
+
+  /**
    * プレーンなテキスト（.txt）として書き出す（青空文庫形式のタグを含まない純粋なテキスト出力）
    */
   function exportPlainText(pages) {
@@ -1442,23 +1641,7 @@
           endIdx++;
         }
         const sectionPages = pages.slice(idx, endIdx + 1);
-        const allHaveRawSlice = sectionPages.every(function (sp) {
-          return typeof sp.rawSlice === 'string';
-        });
-        const combinedSectionRaw = allHaveRawSlice
-          ? sectionPages
-              .map(function (sp) {
-                return sp.rawSlice;
-              })
-              .join('')
-          : sectionPages
-              .filter(function (sp) {
-                return !sp.isBlankAdjustment && sp.type !== 'blank';
-              })
-              .map(function (sp) {
-                return sp.content || '';
-              })
-              .join('\n');
+        const combinedSectionRaw = combineLinkedBodySectionRaw(sectionPages);
 
         const plainSection = stripToPlainText(combinedSectionRaw).replace(/\n/g, '\r\n');
         if (plainSection.trim()) {
@@ -1476,59 +1659,136 @@
   }
 
   function exportAozoraText(pages) {
-    const out = [];
-    pages.forEach(function (p, idx) {
-      if (idx > 0) {
-        out.push('［＃改ページ］');
+    const blocks = [];
+    let idx = 0;
+
+    while (idx < pages.length) {
+      const p = pages[idx];
+      if (!p) {
+        idx++;
+        continue;
       }
+
       if (p.type === 'tobira' && p.tobiraData) {
         const d = p.tobiraData;
-        if (d.title) out.push('［＃大見出し］' + d.title + '［＃大見出し終わり］');
-        if (d.subtitle) out.push(d.subtitle);
-        if (d.author) out.push(d.author);
-        if (d.note) out.push(d.note);
+        const lines = [];
+        if (d.title) lines.push('［＃大見出し］' + d.title + '［＃大見出し終わり］');
+        if (d.subtitle) lines.push(d.subtitle);
+        if (d.author) lines.push(d.author);
+        if (d.note) lines.push(d.note);
+        if (p.content && p.content.trim()) lines.push(p.content.trim());
+        if (lines.length > 0) {
+          blocks.push(lines.join('\r\n'));
+        }
+        idx++;
       } else if (p.type === 'toc' && p.tocData) {
-        out.push('［＃中見出し］' + (p.tocData.heading || '目次') + '［＃中見出し終わり］');
+        const lines = [];
+        if (p.tocData.heading !== undefined && p.tocData.heading !== null && String(p.tocData.heading).trim() !== '') {
+          lines.push('［＃中見出し］' + p.tocData.heading + '［＃中見出し終わり］');
+        }
         (p.tocData.items || []).forEach(function (it) {
-          out.push((it.title || '') + '　……　' + (it.page || ''));
+          lines.push((it.title || '') + '　……　' + (it.page || ''));
         });
+        if (p.content && p.content.trim()) lines.push(p.content.trim());
+        if (lines.length > 0) {
+          blocks.push(lines.join('\r\n'));
+        }
+        idx++;
       } else {
-        let text = String(p.content || '');
-        text = text.replace(/\[改ページ\]/g, '［＃改ページ］');
-        text = text.replace(/\[改丁\]/g, '［＃改丁］');
-        out.push(text);
+        // 連なった本文連動区間を結合し、自動ページ折り返しの段落途中に［＃改ページ］が入らないようにする
+        let endIdx = idx;
+        while (
+          endIdx + 1 < pages.length &&
+          pages[endIdx + 1] &&
+          (pages[endIdx + 1].type === 'body' || pages[endIdx + 1].type === 'blank') &&
+          !pages[endIdx + 1].flowBreakBefore
+        ) {
+          endIdx++;
+        }
+        const sectionPages = pages.slice(idx, endIdx + 1);
+        const hasBodyPage = sectionPages.some(function (sp) {
+          return sp && sp.type === 'body' && !sp.isBlankAdjustment;
+        });
+        if (hasBodyPage) {
+          let text = combineLinkedBodySectionRaw(sectionPages);
+          text = text.replace(/[［\[](?:改ページ|改頁)[］\]]/g, '［＃改ページ］');
+          text = text.replace(/[［\[]改丁(?:[:：](?:奇数|偶数))?[］\]]/g, '［＃改丁］');
+          blocks.push(text.replace(/\r?\n/g, '\r\n'));
+        }
+        idx = endIdx + 1;
       }
-    });
+    }
 
     const title = global.TategakiTypesetter.findNovelTitleFromPages(pages) || 'aozora_novel';
-    const blob = new Blob(['\uFEFF' + out.join('\r\n')], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob(['\uFEFF' + blocks.join('\r\n［＃改ページ］\r\n')], {
+      type: 'text/plain;charset=utf-8'
+    });
     triggerDownload(blob, title + '_青空文庫形式.txt');
   }
 
   function exportMarkdown(pages) {
-    const out = [];
-    pages.forEach(function (p, idx) {
-      if (idx > 0) {
-        out.push('\n---\n');
+    const blocks = [];
+    let idx = 0;
+
+    while (idx < pages.length) {
+      const p = pages[idx];
+      if (!p) {
+        idx++;
+        continue;
       }
+
       if (p.type === 'tobira' && p.tobiraData) {
         const d = p.tobiraData;
-        if (d.title) out.push('# ' + d.title);
-        if (d.subtitle) out.push('## ' + d.subtitle);
-        if (d.author) out.push('- 著者: ' + d.author);
-        if (d.note) out.push('- 備考: ' + d.note);
+        const lines = [];
+        if (d.title) lines.push('# ' + d.title);
+        if (d.subtitle) lines.push('## ' + d.subtitle);
+        if (d.author) lines.push('- 著者: ' + d.author);
+        if (d.note) lines.push('- 備考: ' + d.note);
+        if (p.content && p.content.trim()) lines.push(p.content.trim());
+        if (lines.length > 0) {
+          blocks.push(lines.join('\n'));
+        }
+        idx++;
       } else if (p.type === 'toc' && p.tocData) {
-        out.push('## ' + (p.tocData.heading || '目次'));
+        const lines = [];
+        if (p.tocData.heading !== undefined && p.tocData.heading !== null && String(p.tocData.heading).trim() !== '') {
+          lines.push('## ' + p.tocData.heading);
+        }
         (p.tocData.items || []).forEach(function (it) {
-          out.push('- ' + (it.title || '') + ' (P.' + (it.page || '') + ')');
+          lines.push('- ' + (it.title || '') + ' (P.' + (it.page || '') + ')');
         });
+        if (p.content && p.content.trim()) lines.push(p.content.trim());
+        if (lines.length > 0) {
+          blocks.push(lines.join('\n'));
+        }
+        idx++;
       } else {
-        out.push(p.content || '');
+        // 連なった本文連動区間を結合し、自動ページ折り返しの段落途中に --- が入らないようにする
+        let endIdx = idx;
+        while (
+          endIdx + 1 < pages.length &&
+          pages[endIdx + 1] &&
+          (pages[endIdx + 1].type === 'body' || pages[endIdx + 1].type === 'blank') &&
+          !pages[endIdx + 1].flowBreakBefore
+        ) {
+          endIdx++;
+        }
+        const sectionPages = pages.slice(idx, endIdx + 1);
+        const hasBodyPage = sectionPages.some(function (sp) {
+          return sp && sp.type === 'body' && !sp.isBlankAdjustment;
+        });
+        if (hasBodyPage) {
+          const text = combineLinkedBodySectionRaw(sectionPages);
+          blocks.push(text);
+        }
+        idx = endIdx + 1;
       }
-    });
+    }
 
     const title = global.TategakiTypesetter.findNovelTitleFromPages(pages) || 'novel_markdown';
-    const blob = new Blob(['\uFEFF' + out.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob(['\uFEFF' + blocks.join('\n\n---\n\n')], {
+      type: 'text/markdown;charset=utf-8'
+    });
     triggerDownload(blob, title + '.md');
   }
 
@@ -1746,7 +2006,6 @@
         'font_override_id',
         'font_override_size_pt',
         'flow_break_before',
-        // content だけではページ境界の空行や [改ページ] 等を復元できないため、連動区間の元テキスト断片も保存する
         'raw_slice'
       ]
     ];
@@ -1779,10 +2038,8 @@
         p.fontOverride && p.fontOverride.fontId ? p.fontOverride.fontId : '',
         p.fontOverride && p.fontOverride.fontSizePt ? String(p.fontOverride.fontSizePt) : '',
         p.flowBreakBefore ? 'true' : 'false',
-        p.type === 'body' || p.type === 'blank'
-          ? typeof p.rawSlice === 'string'
-            ? p.rawSlice
-            : p.content || ''
+        (p.type === 'body' || p.type === 'blank') && typeof p.rawSlice === 'string'
+          ? p.rawSlice
           : ''
       ]);
     });
@@ -1810,10 +2067,11 @@
       const subtitle = r[3] || '';
       const author = r[4] || '';
       const noteOrToc = r[5] || '';
-      const content = r[6] || '';
+      const content = String(r[6] || '').replace(/\r\n/g, '\n');
       const fontId = (r[7] || '').trim();
       const fontSizePt = parseFloat(r[8]);
       const flowBreakBefore = (r[9] || '').trim().toLowerCase() === 'true';
+      const rawSlice = r.length > 10 ? String(r[10] || '').replace(/\r\n/g, '\n') : undefined;
 
       let tobiraData = null;
       let tocData = null;
@@ -1856,13 +2114,9 @@
         content: content,
         fontOverride: fontOverride
       };
-
-      // raw_slice 列の無い旧形式CSVや、表計算ソフト等で content 列だけ編集された行は
-      // rawSlice を設定せず、従来どおり content から本文を復元させる
-      const rawSlice = r.length > 10 ? r[10] : undefined;
       if (
         (type === 'body' || type === 'blank') &&
-        typeof rawSlice === 'string' &&
+        r.length > 10 &&
         rawSlice.indexOf(content) !== -1
       ) {
         pageObj.rawSlice = rawSlice;
@@ -1886,7 +2140,7 @@
     });
     const payload = {
       app: '縦書き同人小説書けるくん',
-      version: (global.TategakiState && global.TategakiState.APP_VERSION) || '1.00',
+      version: (global.TategakiState && global.TategakiState.APP_VERSION) || '1.02',
       savedAt: new Date().toISOString(),
       settings: settings,
       pages: cleanPages
@@ -1900,6 +2154,7 @@
   global.TategakiExporters = {
     exportSequentialPngZip: exportSequentialPngZip,
     exportSequentialPsdZip: exportSequentialPsdZip,
+    canvasToPngUint8Array: canvasToPngUint8Array,
     canvasToPsdUint8Array: canvasToPsdUint8Array,
     // 動作が保証できないためコメントアウト。使う場合は自己責任で
     // exportPrintReadyPdf: exportPrintReadyPdf,
