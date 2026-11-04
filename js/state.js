@@ -597,11 +597,11 @@
         // 縦中横と英数字・欧文処理
         autoTcyDigits: 2, // 0: オフ, 2: 2桁まで自動縦中横, 3: 3桁まで自動縦中横
         autoTcyExclamation: true, // !?, !!, ?!, ?? 等を1マス縦中横に
-        latinMode: 'rotate', // 'rotate' (プロポーショナル横組み90度回転) | 'smart' (2〜3字略語は正立・英文は回転) | 'rotate-mono' (等幅90度回転) | 'upright' (一文字ずつ縦に並べる)
+        latinMode: 'rotate', // 'rotate' (プロポーショナル横組み90度回転) | 'smart' (2?3字略語は正立・英文は回転) | 'rotate-mono' (等幅90度回転) | 'upright' (一文字ずつ縦に並べる)
         latinWordWrap: true, // 英単語が行末で途中分割されないようワードラップ
         latinWaouSpacing: 'sixth', // 'sixth' (六分アキ) | 'quarter' (四分アキ) | 'none' (ベタ)
-        latinFontScale: 0.95, // 欧文の文字サイズ比率 (0.80 〜 1.15)
-        latinBaselineOffset: 0.0, // 欧文の左右中心位置微調整 (-0.25 〜 +0.25)
+        latinFontScale: 0.95, // 欧文の文字サイズ比率 (0.80 ? 1.15)
+        latinBaselineOffset: 0.0, // 欧文の左右中心位置微調整 (-0.25 ? +0.25)
 
         // 約物の連続・アキ調整
         connectDashEllipsis: true, // 2倍ダッシュ（――）や三点リーダー（……）の隙間なし連結描画
@@ -857,7 +857,7 @@
           '',
           '　画像書き出しについては連番PSDおよび連番PNGに対応している。PDF出力機能については非対応だが、実はコード上にはAIが実装したものが存在している（PDF、EPUB3、Wordについてexporters.js上にあり）。動くはずだが、作者が現状で使わないので今回は表面上実装しなかった。使いたい方は自己責任で弄ってください。',
           '',
-          '　初期化等は左側の「ファイル」タブの下の方にボタンがある。'
+          '　初期化等は右側の「ファイル」タブの下の方にボタンがある。'
         ].join('\n'),
         fontOverride: {
           fontId: 'yumincho',
