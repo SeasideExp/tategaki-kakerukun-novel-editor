@@ -58,6 +58,19 @@
     return '"Yu Mincho", "游明朝", YuMincho, "Hiragino Mincho ProN", "MS PMincho", serif';
   }
 
+  function resolveBodyFontCss(settings, pageObj) {
+    const bodyCfg = (settings && settings.typography && settings.typography.body) || {};
+    const usePageOverride = Boolean(
+      settings &&
+        settings.typography &&
+        settings.typography.enablePageFontOverride &&
+        pageObj &&
+        pageObj.fontOverride
+    );
+    const fontId = (usePageOverride && pageObj.fontOverride.fontId) || bodyCfg.fontId || 'yumincho';
+    return getFontCss(fontId, settings);
+  }
+
   /**
    * 漢数字変換（目次やノンブル等で利用可能）
    */
@@ -124,7 +137,7 @@
   /**
    * 1行分の文字列を組版トークン列に分解する（ソース文字列内のオフセット srcStart / srcEnd も保持）
    */
-  function tokenizeParagraph(lineText, rules, baseOffset) {
+  function tokenizeParagraph(lineText, rules, baseOffset, fontCss) {
     const rawTokens = [];
     const text = String(lineText || '');
     const offset0 = typeof baseOffset === 'number' ? baseOffset : 0;
@@ -142,7 +155,8 @@
           text.slice(lastIndex, match.index),
           rules,
           rawTokens,
-          offset0 + lastIndex
+          offset0 + lastIndex,
+          fontCss
         );
       }
       const matchStart = offset0 + match.index;
@@ -168,7 +182,13 @@
     }
 
     if (lastIndex < text.length) {
-      tokenizePlainSegment(text.slice(lastIndex), rules, rawTokens, offset0 + lastIndex);
+      tokenizePlainSegment(
+        text.slice(lastIndex),
+        rules,
+        rawTokens,
+        offset0 + lastIndex,
+        fontCss
+      );
     }
 
     // 感嘆符・疑問符直後の全角一マス空け自動補完 + 約物アキ量調整
@@ -314,7 +334,7 @@
   /**
    * 縦書き内で90度回転配置する欧文1文字の自然な送り幅（和文1マス=1.0基準）を算出する
    */
-  function getLatinCharAdvance(ch, rules) {
+  function getLatinCharAdvance(ch, rules, fontCss) {
     const scale =
       rules && typeof rules.latinFontScale === 'number' && rules.latinFontScale > 0
         ? rules.latinFontScale
@@ -338,17 +358,20 @@
       }
     }
 
-    // ブラウザCanvasが利用可能な場合は基準100pxフォントメトリクスとブレンドして正確な字幅を得る
+    // ブラウザCanvasが利用可能な場合は使用中フォントの基準100pxメトリクスとブレンドして正確な字幅を得る
     const mCtx = getSharedMeasureContext();
     if (mCtx) {
-      if (_latinWidthCache[ch] === undefined) {
-        mCtx.font = '100px "Yu Mincho", "游明朝", YuMincho, serif';
+      const targetFontCss =
+        fontCss || '"Yu Mincho", "游明朝", YuMincho, "Hiragino Mincho ProN", "MS PMincho", serif';
+      const cacheKey = targetFontCss + '\0' + ch;
+      if (_latinWidthCache[cacheKey] === undefined) {
+        mCtx.font = '100px ' + targetFontCss;
         const w = mCtx.measureText(ch).width;
-        _latinWidthCache[ch] = w > 0 ? w / 100 : baseEm;
+        _latinWidthCache[cacheKey] = w > 0 ? w / 100 : baseEm;
       }
-      const measured = _latinWidthCache[ch];
+      const measured = _latinWidthCache[cacheKey];
       if (measured > 0.15 && measured < 1.1) {
-        baseEm = measured * 0.75 + baseEm * 0.25;
+        baseEm = measured * 0.85 + baseEm * 0.15;
       }
     }
 
@@ -361,7 +384,15 @@
   /**
    * 欧文・英数字フレーズを文字トークン列へ展開して outTokens に追加する
    */
-  function pushLatinPhraseTokens(chars, startIdx, endIdx, codeUnitOffsets, rules, outTokens) {
+  function pushLatinPhraseTokens(
+    chars,
+    startIdx,
+    endIdx,
+    codeUnitOffsets,
+    rules,
+    outTokens,
+    fontCss
+  ) {
     const phraseStr = chars.slice(startIdx, endIdx).join('');
     const latinMode = (rules && rules.latinMode) || 'rotate';
 
@@ -394,7 +425,7 @@
         text: c,
         isLatinSpace: isSpace,
         latinWordGroupId: isSpace ? 0 : currentWordGroupId,
-        advance: getLatinCharAdvance(c, rules),
+        advance: getLatinCharAdvance(c, rules, fontCss),
         srcStart: codeUnitOffsets[k],
         srcEnd: codeUnitOffsets[k + 1]
       });
@@ -438,7 +469,7 @@
     return j;
   }
 
-  function tokenizePlainSegment(segment, rules, outTokens, segStartOffset) {
+  function tokenizePlainSegment(segment, rules, outTokens, segStartOffset, fontCss) {
     const chars = Array.from(segment);
     const baseOff = typeof segStartOffset === 'number' ? segStartOffset : 0;
     const codeUnitOffsets = new Array(chars.length + 1);
@@ -548,7 +579,7 @@
 
         // 4桁以上の数字、または 600dpi / 8.5pt / 100% 等の欧文・単位付き数値フレーズ
         const phraseEnd = scanLatinPhraseEnd(chars, i);
-        pushLatinPhraseTokens(chars, i, phraseEnd, codeUnitOffsets, rules, outTokens);
+        pushLatinPhraseTokens(chars, i, phraseEnd, codeUnitOffsets, rules, outTokens, fontCss);
         i = phraseEnd;
         continue;
       }
@@ -561,7 +592,7 @@
           /[A-Za-z]/.test(chars[i + 1]))
       ) {
         const phraseEnd = scanLatinPhraseEnd(chars, i);
-        pushLatinPhraseTokens(chars, i, phraseEnd, codeUnitOffsets, rules, outTokens);
+        pushLatinPhraseTokens(chars, i, phraseEnd, codeUnitOffsets, rules, outTokens, fontCss);
         i = phraseEnd;
         continue;
       }
@@ -763,6 +794,7 @@
    */
   function isLineStartProhibited(tok, rules) {
     if (!tok || !rules.enableKinsoku) return false;
+    if (tok.isExclQuest) return true;
     const ch = tok.text || '';
     if (!ch || ch.length !== 1) return false;
     return (rules.lineStartProhibited || '').indexOf(ch) !== -1;
@@ -836,21 +868,11 @@
   }
 
   /**
-   * 前の行(prevLine)の末尾が段落途中の自動折り返し（ページ跨ぎ等による途中改行）かどうかを判定する
+   * 前の行(prevLine)の末尾が段落途中の自動折り返しかどうかを判定する（旧互換スタブ）
+   * ※文字数や句読点の有無による推測は誤判定（字下げ警告漏れや改行消失）の原因となるため行わず、
+   *   ページ跨ぎ折り返しは明示的メタデータ（startsMidParagraph / endsMidParagraph / rawSlice）のみで判定する。
    */
-  function isMidSentenceContinuation(prevLine) {
-    if (!prevLine) return false;
-    const pTrim = String(prevLine).trim();
-    if (!pTrim) return false;
-    // 制御タグ行や見出し行の直後は通常の段落開始とみなす
-    if (/^[［\[]/.test(pTrim) && /[］\]]$/.test(pTrim)) return false;
-    // 前の行が句点・感嘆符・疑問符・閉じ括弧・リーダー・ダッシュ等の文末記号で終わっていない場合（文の途中で改行されている場合）
-    if (
-      pTrim.length >= 16 &&
-      !/[。．.!！?？」』）】〉》〕｝］”’"'…―─ー～〜♪☆★○●◇◆□■▽△▼▲※＊]$/.test(pTrim)
-    ) {
-      return true;
-    }
+  function isMidSentenceContinuation() {
     return false;
   }
 
@@ -864,7 +886,13 @@
     const warnings = [];
     let offset = 0;
 
-    // セクション内の2ページ目以降の開始オフセット集合（ページ跨ぎ位置の誤検知防止用）
+    // 単一ページ検証時やセクション内の2ページ目以降の開始オフセット集合（ページ跨ぎ位置の誤検知防止用）
+    const firstLineStartsMidPara = Boolean(
+      Array.isArray(sectionPages) &&
+        sectionPages.length === 1 &&
+        sectionPages[0] &&
+        sectionPages[0].startsMidParagraph
+    );
     const midParaPageStarts = new Set();
     if (Array.isArray(sectionPages)) {
       for (let pIdx = 1; pIdx < sectionPages.length; pIdx++) {
@@ -879,9 +907,8 @@
 
     for (let i = 0; i < lines.length; i++) {
       const ln = lines[i];
-      const prevLn = i > 0 ? lines[i - 1] : '';
       const isPageWrapCont =
-        midParaPageStarts.has(offset) || (i > 0 && isMidSentenceContinuation(prevLn));
+        (i === 0 && firstLineStartsMidPara) || midParaPageStarts.has(offset);
 
       if (!isPageWrapCont && isUnindentedNarrativeParagraph(ln)) {
         const previewSnippet = ln.replace(/[｜|]([^《]+)《[^》]+》/g, '$1').slice(0, 14);
@@ -1046,58 +1073,55 @@
 
         // 1. 行末禁則（開き括弧などが行末に来た場合 → 追い出し）
         if (isLineEndProhibited(lastTok, rules) && lineTokens.length > 1) {
-          lineTokens.pop();
-          idx--;
-          currentAdv -= lastTok.advance || 1.0;
-          popBrokenRubyGroupIfNeeded(lineTokens);
+          while (
+            lineTokens.length > 1 &&
+            isLineEndProhibited(lineTokens[lineTokens.length - 1], rules)
+          ) {
+            const poppedEnd = lineTokens.pop();
+            idx--;
+            currentAdv -= poppedEnd.advance || 1.0;
+            popBrokenRubyGroupIfNeeded(lineTokens);
+          }
           adjustMode = 'oidashi';
         }
-        // 2. 次行の先頭が行頭禁則文字の場合
+        // 2. 次行の先頭が行頭禁則文字の場合（連続する行頭禁則「。」」「、』」等にも完全対応）
         else if (isLineStartProhibited(nextTok, rules)) {
-          if (mode === 'burasage' && isHangingChar(nextTok, rules)) {
-            // ぶら下げ組：句読点を行末枠外にぶら下げる
-            const hung = Object.assign({}, nextTok, { isHanging: true });
-            lineTokens.push(hung);
-            idx++;
-            adjustMode = 'burasage';
-          } else if (mode === 'oikomi' || mode === 'burasage') {
-            // 追い込み：文字間隔を微調整（縮小）して現在行に収める
-            const pulled = Object.assign({}, nextTok);
-            lineTokens.push(pulled);
-            currentAdv += pulled.advance || 1.0;
-            idx++;
-            adjustMode = 'oikomi';
-
-            // さらにもう1文字連続して行頭禁則（例：。」）がある場合の処理
-            if (idx < tokens.length && isLineStartProhibited(tokens[idx], rules)) {
-              if (mode === 'burasage' && isHangingChar(tokens[idx], rules)) {
-                const hung2 = Object.assign({}, tokens[idx], { isHanging: true });
-                lineTokens.push(hung2);
-                idx++;
-              } else {
-                const pulled2 = Object.assign({}, tokens[idx]);
-                lineTokens.push(pulled2);
-                currentAdv += pulled2.advance || 1.0;
-                idx++;
-              }
-            }
-          } else if (mode === 'oidashi' && lineTokens.length > 1) {
-            // 追い出し：前の文字を次行へ送り、現在行の文字間隔を広げて揃える
-            const pushed = lineTokens.pop();
-            idx--;
-            currentAdv -= pushed.advance || 1.0;
-            popBrokenRubyGroupIfNeeded(lineTokens);
-            adjustMode = 'oidashi';
-
-            // 追い出した結果、さらに新しい行末が行末禁則になった場合はもう1文字追い出す
-            if (
+          if (mode === 'oidashi' && lineTokens.length > 1) {
+            // 追い出し：次行先頭が行頭禁則でなくなり、かつ現在行末が行末禁則にならない位置まで次行へ送る
+            while (
               lineTokens.length > 1 &&
-              isLineEndProhibited(lineTokens[lineTokens.length - 1], rules)
+              (isLineStartProhibited(tokens[idx], rules) ||
+                isLineEndProhibited(lineTokens[lineTokens.length - 1], rules))
             ) {
-              const pushed2 = lineTokens.pop();
+              const pushed = lineTokens.pop();
               idx--;
-              currentAdv -= pushed2.advance || 1.0;
+              currentAdv -= pushed.advance || 1.0;
               popBrokenRubyGroupIfNeeded(lineTokens);
+            }
+            adjustMode = 'oidashi';
+          } else {
+            // ぶら下げ組（burasage）または 追い込み（oikomi）：
+            // 連続する行頭禁則文字（例：「。」」「、』」「。」』」など）が次行の頭に来ないようすべて現在行で処理する
+            while (idx < tokens.length && isLineStartProhibited(tokens[idx], rules)) {
+              const curProhibited = tokens[idx];
+              const hasMoreProhibited =
+                idx + 1 < tokens.length && isLineStartProhibited(tokens[idx + 1], rules);
+              if (!hasMoreProhibited && mode === 'burasage' && isHangingChar(curProhibited, rules)) {
+                // 連続禁則の最終文字（または単独）が句読点の場合は行末枠外にぶら下げる
+                const hung = Object.assign({}, curProhibited, { isHanging: true });
+                lineTokens.push(hung);
+                idx++;
+                if (adjustMode === 'none') {
+                  adjustMode = 'burasage';
+                }
+              } else {
+                // 直後にさらに禁則文字が続く場合（例：「。」の「。」）や閉じ括弧等は行内に追い込む
+                const pulled = Object.assign({}, curProhibited);
+                lineTokens.push(pulled);
+                currentAdv += pulled.advance || 1.0;
+                idx++;
+                adjustMode = 'oikomi';
+              }
             }
           }
         }
@@ -1137,6 +1161,7 @@
   function layoutBodyTextToLines(text, settings, pageObj) {
     const charsPerLine = settings.layout.charsPerLine || 41;
     const rules = settings.rules;
+    const fontCss = resolveBodyFontCss(settings, pageObj);
     const rawLines = String(text || '').replace(/\r\n/g, '\n').split('\n');
     const resultLines = [];
     const pageStartsMidPara = Boolean(pageObj && pageObj.startsMidParagraph);
@@ -1176,12 +1201,12 @@
         continue;
       }
 
-      const prevRawLine = i > 0 ? rawLines[i - 1] : '';
-      const isContinuationFromPrev =
-        (i === 0 && pageStartsMidPara) || (i > 0 && isMidSentenceContinuation(prevRawLine));
+      const isContinuationFromPrev = i === 0 && pageStartsMidPara;
 
       // 段落内に [改ページ] や [改丁] が含まれる場合も分割処理
-      const parts = rawLine.split(/([［\[](?:改ページ|改頁|＃改ページ|＃改頁|改丁(?::(?:奇数|偶数))?|＃改丁)[］\]])/g);
+      const parts = rawLine.split(
+        /([［\[](?:改ページ|改頁|＃改ページ|＃改頁|改丁(?:[:：](?:奇数|偶数))?|＃改丁)[］\]])/g
+      );
       let partOffset = lineStartOffset;
       for (let p = 0; p < parts.length; p++) {
         const part = parts[p];
@@ -1195,7 +1220,7 @@
         } else if (/^[［\[](?:改丁:偶数|改丁：偶数)[］\]]$/.test(part)) {
           resultLines.push({ isControlBreak: 'kaicho-even' });
         } else {
-          const tokens = tokenizeParagraph(part, rules, curPartStart);
+          const tokens = tokenizeParagraph(part, rules, curPartStart, fontCss);
           const wrapped = breakTokensIntoLines(
             tokens,
             charsPerLine,
@@ -1231,6 +1256,7 @@
     const columns = settings.layout.columns || 1;
     const maxLinesPerPage = linesPerColumn * columns;
     const rules = settings.rules;
+    const fontCss = resolveBodyFontCss(settings, null);
 
     const text = String(sectionText || '').replace(/\r\n/g, '\n');
 
@@ -1339,7 +1365,7 @@
           const subText = rawLine.slice(segStartInLine, ctrlMatch.index);
           const subStart = entry.lineStart + segStartInLine;
           const subEnd = entry.lineStart + ctrlMatch.index;
-          const subTokens = tokenizeParagraph(subText, rules, subStart);
+          const subTokens = tokenizeParagraph(subText, rules, subStart, fontCss);
           const subWrapped = breakTokensIntoLines(
             subTokens,
             charsPerLine,
@@ -1390,11 +1416,8 @@
         segStartInLine = inlineCtrlPattern.lastIndex;
       }
 
-      const prevRawLine = i > 0 ? rawLineEntries[i - 1].rawLine : '';
-      const isPrevMidSentence = i > 0 && isMidSentenceContinuation(prevRawLine);
-
       if (!hadInlineCtrl) {
-        const tokens = tokenizeParagraph(rawLine, rules, entry.lineStart);
+        const tokens = tokenizeParagraph(rawLine, rules, entry.lineStart, fontCss);
         const wrapped = breakTokensIntoLines(
           tokens,
           charsPerLine,
@@ -1402,8 +1425,7 @@
           entry.lineStart,
           entry.lineEnd
         );
-        const missingIndent =
-          !isPrevMidSentence && isUnindentedNarrativeParagraph(rawLine);
+        const missingIndent = isUnindentedNarrativeParagraph(rawLine);
         for (let w = 0; w < wrapped.length; w++) {
           const ln = wrapped[w];
           const isLastInPara = w === wrapped.length - 1;
@@ -1412,7 +1434,7 @@
             tokens: ln.tokens,
             totalAdvance: ln.totalAdvance,
             adjustMode: ln.adjustMode,
-            isWrappedContinuation: w > 0 || isPrevMidSentence,
+            isWrappedContinuation: w > 0,
             hasMissingIndentWarning: w === 0 && missingIndent,
             srcStart: ln.srcStart,
             srcEnd: ln.srcEnd,
@@ -1424,7 +1446,7 @@
         const tailText = rawLine.slice(segStartInLine);
         const tailStart = entry.lineStart + segStartInLine;
         const tailEnd = entry.lineEnd;
-        const tailTokens = tokenizeParagraph(tailText, rules, tailStart);
+        const tailTokens = tokenizeParagraph(tailText, rules, tailStart, fontCss);
         const tailWrapped = breakTokensIntoLines(
           tailTokens,
           charsPerLine,
@@ -2230,7 +2252,7 @@
     // 縦書き文字列を描画する内部ヘルパー
     function drawVerticalString(str, xPx, startYPx, fPx, charPitchRatio, alignBottomY) {
       if (!str) return;
-      const tokens = tokenizeParagraph(str, settings.rules);
+      const tokens = tokenizeParagraph(str, settings.rules, 0, fontCss);
       const pitch = fPx * (charPitchRatio || 1.12);
       const totalAdv = tokens.reduce(function (acc, t) {
         return acc + (t.advance || 1.0);
@@ -2427,7 +2449,7 @@
 
     // 見出し（例：「目 次」）の描画（空欄の場合は描画しない）
     if (hasHeading) {
-      const hTokens = tokenizeParagraph(headingText, settings.rules);
+      const hTokens = tokenizeParagraph(headingText, settings.rules, 0, fontCss);
       const startY = boxY + headingFontPx * 2.0;
       drawTokenListAlongColumn(
         ctx,
@@ -2452,7 +2474,7 @@
     items.forEach(function (item) {
       if (currentX < boxX + itemFontPx * 0.5) return;
 
-      const titleTokens = tokenizeParagraph(item.title || '', settings.rules);
+      const titleTokens = tokenizeParagraph(item.title || '', settings.rules, 0, fontCss);
       const titleEndY = drawTokenListAlongColumn(
         ctx,
         titleTokens,
@@ -2579,9 +2601,16 @@
       lineStepX = fontPx + mmToPx(layoutCfg.manualLineGapMm || 1.5, dpi);
     }
 
-    const laidOutLines = Array.isArray(page._precomputedLines)
-      ? page._precomputedLines
-      : layoutBodyTextToLines(page.content || '', settings, page);
+    const hasCustomPageFont = Boolean(
+      usePageOverride &&
+        page.fontOverride &&
+        page.fontOverride.fontId &&
+        page.fontOverride.fontId !== bodyCfg.fontId
+    );
+    const laidOutLines =
+      !hasCustomPageFont && Array.isArray(page._precomputedLines)
+        ? page._precomputedLines
+        : layoutBodyTextToLines(page.content || '', settings, page);
     let lineCursor = 0;
 
     for (let col = 0; col < columns; col++) {
