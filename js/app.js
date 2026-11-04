@@ -735,6 +735,7 @@
     });
 
     bindClick('btn-reset-ui-theme', function () {
+      pushUndoSnapshot('UI色調のリセット');
       if (!App.settings.ui) App.settings.ui = {};
       App.settings.ui.themePreset = 'dark-sumi';
       applyUiTheme();
@@ -796,6 +797,7 @@
     });
 
     bindClick('btn-reset-gauge-colors', function () {
+      pushUndoSnapshot('ゲージ色調のリセット');
       if (!App.settings.ui) App.settings.ui = {};
       App.settings.ui.gaugeColors = {
         elapsed: '#5b9bd5',
@@ -876,6 +878,7 @@
         showToast('現在より未来の日時を指定してください', true);
         return;
       }
+      pushUndoSnapshot('締切の設定');
       if (!App.settings.ui) App.settings.ui = {};
       App.settings.ui.deadline = {
         startAt: nowMs,
@@ -888,6 +891,7 @@
     });
 
     bindClick('btn-reset-deadline', function () {
+      pushUndoSnapshot('締切のリセット');
       if (!App.settings.ui) App.settings.ui = {};
       App.settings.ui.deadline = { startAt: 0, targetAt: 0 };
       updateHeaderTimeAndDeadlineBar();
@@ -920,6 +924,7 @@
 
         if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape') {
           if (e.key !== 'Escape') {
+            pushUndoSnapshot('ショートカット設定の変更');
             if (!App.settings.ui.shortcuts) App.settings.ui.shortcuts = {};
             App.settings.ui.shortcuts[action] = '';
             syncShortcutInputsAndTooltips();
@@ -932,6 +937,7 @@
         const formatted = formatShortcutFromKeyEvent(e);
         if (!formatted) return;
 
+        pushUndoSnapshot('ショートカット設定の変更');
         if (!App.settings.ui.shortcuts) App.settings.ui.shortcuts = {};
         // 他の操作に同じキーが割り当てられていた場合は重複を解除
         Object.keys(App.settings.ui.shortcuts).forEach(function (k) {
@@ -952,6 +958,7 @@
       btn.addEventListener('click', function () {
         const action = btn.getAttribute('data-clear-shortcut');
         if (!action || !App.settings.ui) return;
+        pushUndoSnapshot('ショートカット設定の変更');
         if (!App.settings.ui.shortcuts) App.settings.ui.shortcuts = {};
         App.settings.ui.shortcuts[action] = '';
         syncShortcutInputsAndTooltips();
@@ -960,6 +967,7 @@
     });
 
     bindClick('btn-reset-shortcuts', function () {
+      pushUndoSnapshot('ショートカット設定のリセット');
       if (!App.settings.ui) App.settings.ui = {};
       App.settings.ui.shortcuts = Object.assign(
         {},
@@ -975,6 +983,21 @@
       const activeEl = document.activeElement;
       if (activeEl && activeEl.classList && activeEl.classList.contains('shortcut-key-input')) {
         return;
+      }
+
+      // 0. グローバル Ctrl+Z / Cmd+Z で元に戻す（本文テキストエリア以外の設定・扉・目次操作時も有効）
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === 'z' &&
+        (!activeEl || activeEl.id !== 'editor-body-textarea')
+      ) {
+        if (App.undoStack.length > 0) {
+          e.preventDefault();
+          performUndo();
+          return;
+        }
       }
 
       // 1. 登録済みショートカットキー（Ctrl+S など）の判定・実行
@@ -1404,8 +1427,6 @@
   }
 
   function bindSettingsInputs() {
-    // 設定CSV/JSON読込や初期化で App.settings は別オブジェクトに差し替わるため、
-    // 起動時の参照を保持せず各ハンドラ内で毎回 App.settings を参照する
     onInput('cfg-paper-preset', function (val) {
       App.settings.paper.preset = val;
       const preset = global.TategakiState.PAPER_PRESETS[val];
@@ -1833,26 +1854,34 @@
         Promise.all(loadPromises)
           .then(function (loadedEntries) {
             if (!loadedEntries || loadedEntries.length === 0) return;
+            pushUndoSnapshot('カスタムフォントの適用');
             const lastEntry = loadedEntries[loadedEntries.length - 1];
             App.settings.typography.body.fontId = lastEntry.id;
             populateFontSelects();
             setVal('cfg-body-font', lastEntry.id);
             setVal(
               'cfg-tobira-font',
-              resolveValidFontId(App.settings.typography.tobira && App.settings.typography.tobira.fontId)
+              resolveValidFontId(
+                App.settings.typography.tobira && App.settings.typography.tobira.fontId
+              )
             );
             setVal(
               'cfg-toc-font',
-              resolveValidFontId(App.settings.typography.toc && App.settings.typography.toc.fontId)
+              resolveValidFontId(
+                App.settings.typography.toc && App.settings.typography.toc.fontId
+              )
             );
             setVal(
               'cfg-nombre-font',
-              resolveValidFontId(App.settings.typography.nombre && App.settings.typography.nombre.fontId)
+              resolveValidFontId(
+                App.settings.typography.nombre && App.settings.typography.nombre.fontId
+              )
             );
             setVal(
               'cfg-nombre-comment-font',
               resolveValidFontId(
-                App.settings.typography.nombreComment && App.settings.typography.nombreComment.fontId
+                App.settings.typography.nombreComment &&
+                  App.settings.typography.nombreComment.fontId
               )
             );
             const names = loadedEntries.map(function (en) {
@@ -1871,21 +1900,43 @@
     }
   }
 
+  function recordDebouncedUndoSnapshot(actionLabel) {
+    if (!App.hasPendingTypingUndo) {
+      pushUndoSnapshot(actionLabel || '設定の変更');
+      App.hasPendingTypingUndo = true;
+    }
+    clearTimeout(App.typingUndoTimer);
+    App.typingUndoTimer = setTimeout(function () {
+      App.hasPendingTypingUndo = false;
+    }, 800);
+  }
+
   function onInput(id, handler) {
     const el = document.getElementById(id);
     if (!el) return;
-    el.addEventListener('input', function () {
-      handler(el.value);
-    });
-    el.addEventListener('change', function () {
-      handler(el.value);
-    });
+    const isSelect = el.tagName && el.tagName.toUpperCase() === 'SELECT';
+    if (isSelect) {
+      el.addEventListener('change', function () {
+        pushUndoSnapshot('設定の変更');
+        handler(el.value);
+      });
+    } else {
+      el.addEventListener('input', function () {
+        recordDebouncedUndoSnapshot('設定の変更');
+        handler(el.value);
+      });
+      el.addEventListener('change', function () {
+        recordDebouncedUndoSnapshot('設定の変更');
+        handler(el.value);
+      });
+    }
   }
 
   function onCheck(id, handler) {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', function () {
+      pushUndoSnapshot('設定の変更');
       handler(el.checked);
     });
   }
@@ -1969,54 +2020,16 @@
       return typeof p.rawSlice === 'string';
     });
 
-    const maxLines =
-      (App.settings && App.settings.layout
-        ? (App.settings.layout.linesPerPage || 18) * (App.settings.layout.columns || 1)
-        : 18);
-
     if (allHaveRawSlice && !forceFromContent) {
       let joined = '';
       for (let i = 0; i < sectionPages.length; i++) {
-        let sliceStr = sectionPages[i].rawSlice;
-        // 過去バージョンのページ結合等でページ境界(満杯行末)の文中に誤って単一改行(\n)が入っていた場合は自動修復
-        if (
-          i < sectionPages.length - 1 &&
-          !sectionPages[i].isBlankAdjustment &&
-          (sectionPages[i].usedLines || 0) >= maxLines &&
-          /[^\n]\n$/.test(sliceStr)
-        ) {
-          const lastLine = sliceStr.slice(0, -1).split('\n').pop() || '';
-          let nextSlice = '';
-          for (let n = i + 1; n < sectionPages.length; n++) {
-            const cand = sectionPages[n].rawSlice || sectionPages[n].content || '';
-            if (cand.length > 0) {
-              nextSlice = cand;
-              break;
-            }
-          }
-          if (
-            global.TategakiTypesetter.isMidSentenceContinuation(lastLine) &&
-            nextSlice.length > 0 &&
-            !/^[　 \t\n「『（【〈《〔｛［“‘]/.test(nextSlice)
-          ) {
-            sliceStr = sliceStr.slice(0, -1);
-          }
-        }
-        if (
-          i === sectionPages.length - 1 &&
-          !sectionPages[i].isBlankAdjustment &&
-          (sectionPages[i].usedLines || 0) >= maxLines &&
-          /\n$/.test(sliceStr)
-        ) {
-          sliceStr = sliceStr.replace(/\n+$/, '');
-        }
-        joined += sliceStr;
+        joined += sectionPages[i].rawSlice;
       }
       return joined;
     }
 
     // rawSlice が一部ページにのみ存在する場合や、contentから復元する場合でも
-    // ページ跨ぎの途中折り返し(endsMidParagraph / 文中折り返し)では \n を挟まない
+    // ページ跨ぎの途中折り返し(endsMidParagraph / startsMidParagraph)では \n を挟まない
     const nonBlankPages = sectionPages.filter(function (p) {
       return !p.isBlankAdjustment && !(p.type === 'blank' && !p.content);
     });
@@ -2037,17 +2050,15 @@
       }
       combined += c;
       if (i < nonBlankPages.length - 1) {
-        const lastLine = c.replace(/\n$/, '').split('\n').pop() || '';
-        const nextContent = nonBlankPages[i + 1].content || '';
+        const nextPage = nonBlankPages[i + 1];
+        const nextContent = nextPage.content || '';
         const endsMid =
           Boolean(p.endsMidParagraph) ||
+          Boolean(nextPage && nextPage.startsMidParagraph) ||
           (typeof p.charEnd === 'number' &&
             typeof p.contentEnd === 'number' &&
             p.charEnd === p.contentEnd &&
-            c.length > 0) ||
-          (global.TategakiTypesetter.isMidSentenceContinuation(lastLine) &&
-            nextContent.length > 0 &&
-            !/^[　 \t\n「『（【〈《〔｛［“‘]/.test(nextContent));
+            c.length > 0);
         if (!endsMid && !/\n$/.test(c) && !/^\n/.test(nextContent)) {
           combined += '\n';
         }
@@ -2077,6 +2088,7 @@
     const bodyTextarea = document.getElementById('editor-body-textarea');
     const snap = {
       pages: clonePagesForHistory(App.pages),
+      settings: JSON.parse(JSON.stringify(App.settings)),
       activePageIndex: App.activePageIndex,
       selectionStart: bodyTextarea ? bodyTextarea.selectionStart || 0 : 0,
       selectionEnd: bodyTextarea ? bodyTextarea.selectionEnd || 0 : 0,
@@ -2088,7 +2100,8 @@
       const last = App.undoStack[App.undoStack.length - 1];
       if (
         last.activePageIndex === snap.activePageIndex &&
-        JSON.stringify(last.pages) === JSON.stringify(snap.pages)
+        JSON.stringify(last.pages) === JSON.stringify(snap.pages) &&
+        JSON.stringify(last.settings) === JSON.stringify(snap.settings)
       ) {
         return;
       }
@@ -2111,6 +2124,10 @@
     App.hasPendingTypingUndo = false;
     clearTimeout(App.typingUndoTimer);
 
+    if (snap.settings) {
+      App.settings = snap.settings;
+      syncSettingsToInputs();
+    }
     App.pages = snap.pages;
     App.activePageIndex = Math.min(snap.activePageIndex, Math.max(0, App.pages.length - 1));
     repaginateAllLinkedSections({ fromPageContents: false });
@@ -2120,8 +2137,9 @@
 
     syncEditorToCurrentPage({ forceReloadText: true });
 
+    const curPage = getCurrentPage();
     const bodyTextarea = document.getElementById('editor-body-textarea');
-    if (bodyTextarea) {
+    if (bodyTextarea && curPage && curPage.type === 'body') {
       const maxLen = bodyTextarea.value.length;
       bodyTextarea.focus();
       bodyTextarea.selectionStart = Math.min(maxLen, snap.selectionStart || 0);
@@ -3152,6 +3170,7 @@
       el.addEventListener('input', function () {
         const page = getCurrentPage();
         if (!page || page.type !== 'tobira') return;
+        recordDebouncedUndoSnapshot('扉ページの編集');
         if (!page.tobiraData) page.tobiraData = {};
         const key = fieldId.replace('tobira-', '');
         page.tobiraData[key] = el.value;
@@ -3165,6 +3184,7 @@
       tobiraOffsetYEl.addEventListener('input', function () {
         const page = getCurrentPage();
         if (!page || page.type !== 'tobira') return;
+        recordDebouncedUndoSnapshot('扉ページの編集');
         if (!page.tobiraData) page.tobiraData = {};
         const num = parseFloat(tobiraOffsetYEl.value);
         const yMm = isNaN(num) ? 18 : num;
@@ -3179,6 +3199,7 @@
       tobiraOffsetXEl.addEventListener('input', function () {
         const page = getCurrentPage();
         if (!page || page.type !== 'tobira') return;
+        recordDebouncedUndoSnapshot('扉ページの編集');
         if (!page.tobiraData) page.tobiraData = {};
         const num = parseFloat(tobiraOffsetXEl.value);
         const xMm = isNaN(num) ? 0 : num;
@@ -3191,6 +3212,7 @@
     bindClick('btn-reset-tobira-title-pos', function () {
       const page = getCurrentPage();
       if (!page || page.type !== 'tobira') return;
+      pushUndoSnapshot('扉タイトルの位置リセット');
       if (!page.tobiraData) page.tobiraData = {};
       page.tobiraData.titleOffsetYMm = 18;
       page.tobiraData.titleOffsetXMm = 0;
@@ -3210,6 +3232,7 @@
       tocHeadingInput.addEventListener('input', function () {
         const page = getCurrentPage();
         if (!page || page.type !== 'toc') return;
+        recordDebouncedUndoSnapshot('目次の編集');
         if (!page.tocData) page.tocData = { heading: '目　次', items: [] };
         page.tocData.heading = tocHeadingInput.value;
         schedulePreviewAndCounterRender();
@@ -3221,6 +3244,7 @@
       btnAddTocItem.addEventListener('click', function () {
         const page = getCurrentPage();
         if (!page || page.type !== 'toc') return;
+        pushUndoSnapshot('目次項目の追加');
         if (!page.tocData) page.tocData = { heading: '目　次', items: [] };
         page.tocData.items.push({ title: '新しい章', page: String(App.pages.length) });
         renderTocItemsEditor(page);
@@ -3621,6 +3645,7 @@
       titleInput.placeholder = '章タイトル';
       titleInput.value = item.title || '';
       titleInput.addEventListener('input', function () {
+        recordDebouncedUndoSnapshot('目次の編集');
         item.title = titleInput.value;
         schedulePreviewAndCounterRender();
       });
@@ -3631,6 +3656,7 @@
       pageInput.placeholder = '頁';
       pageInput.value = item.page || '';
       pageInput.addEventListener('input', function () {
+        recordDebouncedUndoSnapshot('目次の編集');
         item.page = pageInput.value;
         schedulePreviewAndCounterRender();
       });
@@ -3641,6 +3667,7 @@
       delBtn.textContent = '×';
       delBtn.title = 'この目次項目を削除';
       delBtn.addEventListener('click', function () {
+        pushUndoSnapshot('目次項目の削除');
         items.splice(idx, 1);
         renderTocItemsEditor(page);
         schedulePreviewAndCounterRender();
@@ -4089,7 +4116,6 @@
     const insertPos = App.activePageIndex + 1;
     App.pages.splice(insertPos, 0, newPage);
     App.selectedPageIds.push(newPage.id);
-    // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
     repaginateAllLinkedSections({ fromPageContents: false });
     App.activePageIndex = insertPos;
     syncEditorToCurrentPage({ forceReloadText: true });
@@ -4116,7 +4142,6 @@
     const insertPos = App.activePageIndex + 1;
     App.pages.splice(insertPos, 0, copy);
     App.selectedPageIds.push(copy.id);
-    // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
     repaginateAllLinkedSections({ fromPageContents: false });
     App.activePageIndex = insertPos;
     syncEditorToCurrentPage({ forceReloadText: true });
@@ -4145,7 +4170,6 @@
     if (App.activePageIndex >= App.pages.length) {
       App.activePageIndex = App.pages.length - 1;
     }
-    // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
     repaginateAllLinkedSections({ fromPageContents: false });
     syncEditorToCurrentPage({ forceReloadText: true });
     renderAll();
@@ -4165,7 +4189,6 @@
     const moved = App.pages.splice(fromIndex, 1)[0];
     App.pages.splice(toIndex, 0, moved);
     App.activePageIndex = toIndex;
-    // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
     repaginateAllLinkedSections({ fromPageContents: false });
     syncEditorToCurrentPage({ forceReloadText: true });
     renderAll();
@@ -4224,7 +4247,7 @@
           activePageNum +
           ' [' +
           typeLabel(App.pages[App.activePageIndex].type) +
-          '] （ノド＝左1.5cm / 小口＝右1cm）';
+          ']';
         global.TategakiTypesetter.renderPageToCanvas(
           rightCanvas,
           App.pages[App.activePageIndex],
@@ -4245,7 +4268,7 @@
           activePageNum +
           ' [' +
           typeLabel(App.pages[App.activePageIndex].type) +
-          '] （ノド＝右1.5cm / 小口＝左1cm）';
+          ']';
         global.TategakiTypesetter.renderPageToCanvas(
           leftCanvas,
           App.pages[App.activePageIndex],
@@ -4856,283 +4879,7 @@
   // ファイル保存・読み込み・印刷入稿書き出しアクション
   // =========================================================================
   function bindFileAndExportActions() {
-    // 1. 統合PDF出力
-    // 動作が保証できないためコメントアウト。使う場合は自己責任で
-    /*
-    bindClick('btn-export-pdf', function () {
-      runWithProgressModal(async function (updateProgress) {
-        await global.TategakiExporters.exportPrintReadyPdf(
-          App.pages,
-          App.settings,
-          App.customFontBytes,
-          updateProgress
-        );
-      }, '印刷所対応 統合PDFを書き出しました');
-    });
-    */
-
-    // 1-B. 全ページ連番PSD (ZIP一括) 出力
-    bindClick('btn-export-psd-zip', function () {
-      runWithProgressModal(async function (updateProgress) {
-        await global.TategakiExporters.exportSequentialPsdZip(
-          App.pages,
-          App.settings,
-          updateProgress
-        );
-      }, '全ページ連番PSD (ZIP) を書き出しました');
-    });
-
-    // 2. ページ連番PNG (ZIP) 出力
-    bindClick('btn-export-png-zip', function () {
-      runWithProgressModal(async function (updateProgress) {
-        await global.TategakiExporters.exportSequentialPngZip(
-          App.pages,
-          App.settings,
-          updateProgress
-        );
-      }, '全ページ連番PNG (ZIP) を書き出しました');
-    });
-
-    // 3. 現在のページ単体PNG出力
-    bindClick('btn-export-single-png', function () {
-      const page = getCurrentPage();
-      if (!page) return;
-      const dpi = App.settings.paper.dpi || 600;
-      const offCanvas = document.createElement('canvas');
-      global.TategakiTypesetter.renderPageToCanvas(
-        offCanvas,
-        page,
-        App.activePageIndex,
-        App.pages,
-        App.settings,
-        {
-          dpi: dpi,
-          includeTrimMarks: App.settings.exportOptions.includeTrimMarks,
-          includeBleedArea: App.settings.exportOptions.exportBleedMm > 0,
-          bleedMm: App.settings.exportOptions.exportBleedMm,
-          isExport: true,
-          grayscaleK100: App.settings.exportOptions.pdfColorMode === 'grayscale-k100'
-        }
-      );
-      offCanvas.toBlob(function (blob) {
-        const pageNum = (App.settings.headerFooter.startPageNumber || 1) + App.activePageIndex;
-        global.TategakiExporters.triggerDownload(
-          blob,
-          'page_' + String(pageNum).padStart(3, '0') + '_' + dpi + 'dpi.png'
-        );
-        showToast('P.' + pageNum + ' のPNG (' + dpi + 'dpi) を出力しました');
-      }, 'image/png');
-    });
-
-    // 4. 汎用フォーマット入出力 (EPUB3 / DOCX は動作が保証できないためコメントアウト。使う場合は自己責任で)
-    /* 動作が保証できないためコメントアウト。使う場合は自己責任で
-    bindClick('btn-export-epub', function () {
-      global.TategakiExporters.exportEpub3(App.pages, App.settings).then(function () {
-        showToast('EPUB3ファイルを書き出しました');
-      });
-    });
-
-    bindClick('btn-export-docx', function () {
-      global.TategakiExporters.exportDocx(App.pages, App.settings);
-      showToast('Word (.docx) ファイルを書き出しました');
-    });
-    */
-
-    // 4-B. プレーンテキスト (.txt) 出力（青空文庫形式とは別の純粋なテキスト出力）
-    bindClick('btn-export-plain-txt', function () {
-      global.TategakiExporters.exportPlainText(App.pages);
-      showToast('プレーンテキスト (.txt) を書き出しました');
-    });
-
-    bindClick('btn-export-aozora', function () {
-      global.TategakiExporters.exportAozoraText(App.pages);
-      showToast('青空文庫形式テキスト (.txt) を書き出しました');
-    });
-
-    bindClick('btn-export-md', function () {
-      global.TategakiExporters.exportMarkdown(App.pages);
-      showToast('Markdown (.md) ファイルを書き出しました');
-    });
-
-    // 5. 外部テキスト読み込み (.txt / .md) ※ .epub / .docx はコメントアウト
-    const inputImportUniversal = document.getElementById('input-import-universal');
-    if (inputImportUniversal) {
-      inputImportUniversal.addEventListener('change', function (e) {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        // const ext = file.name.split('.').pop().toLowerCase();
-
-        /* 動作が保証できないためコメントアウト。使う場合は自己責任で
-        if (ext === 'epub') {
-          file.arrayBuffer().then(function (ab) {
-            global.TategakiExporters.importEpub3(ab)
-              .then(function (pages) {
-                if (pages && pages.length > 0) {
-                  App.pages = pages;
-                  App.activePageIndex = 0;
-                  repaginateAllLinkedSections({ fromPageContents: true });
-                  App.selectedPageIds = App.pages.map(function (p) {
-                    return p.id;
-                  });
-                  syncEditorToCurrentPage();
-                  renderAll();
-                  showToast('EPUB3ファイル（' + App.pages.length + '頁）を読み込みました');
-                }
-              })
-              .catch(function (err) {
-                showToast('EPUB読込エラー: ' + err.message, true);
-              });
-          });
-        } else if (ext === 'docx') {
-          file.arrayBuffer().then(function (ab) {
-            global.TategakiExporters.importDocx(ab)
-              .then(function (pages) {
-                if (pages && pages.length > 0) {
-                  App.pages = pages;
-                  App.activePageIndex = 0;
-                  repaginateAllLinkedSections({ fromPageContents: true });
-                  App.selectedPageIds = App.pages.map(function (p) {
-                    return p.id;
-                  });
-                  syncEditorToCurrentPage();
-                  renderAll();
-                  showToast('Word (.docx) ファイル（' + App.pages.length + '頁）を読み込みました');
-                }
-              })
-              .catch(function (err) {
-                showToast('DOCX読込エラー: ' + err.message, true);
-              });
-          });
-        } else {
-        */
-        file.text().then(function (txt) {
-          const pages = global.TategakiExporters.importAozoraOrMarkdownText(
-            txt,
-            App.settings
-          );
-          if (pages && pages.length > 0) {
-            App.pages = pages;
-            App.activePageIndex = 0;
-            repaginateAllLinkedSections({ fromPageContents: true });
-            App.selectedPageIds = App.pages.map(function (p) {
-              return p.id;
-            });
-            syncEditorToCurrentPage();
-            renderAll();
-            showToast(
-              'テキスト/Markdown（' + App.pages.length + '頁に自動分割）を読み込みました'
-            );
-          }
-        });
-        /* } */
-        e.target.value = '';
-      });
-    }
-
-    // 6. 「設定ファイル (CSV)」保存・読み込み
-    bindClick('btn-save-settings-csv', function () {
-      global.TategakiExporters.saveSettingsToCsv(App.settings);
-      showToast('設定ファイル (.csv) を保存しました');
-    });
-    bindClick('btn-top-save-settings-csv', function () {
-      global.TategakiExporters.saveSettingsToCsv(App.settings);
-      showToast('設定ファイル (.csv) を保存しました');
-    });
-
-    const inputSettingsCsv = document.getElementById('input-load-settings-csv');
-    if (inputSettingsCsv) {
-      inputSettingsCsv.addEventListener('change', function (e) {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        file.text().then(function (csvText) {
-          App.settings = global.TategakiExporters.loadSettingsFromCsv(
-            csvText,
-            App.settings
-          );
-          syncSettingsToInputs();
-          repaginateAllLinkedSections({ fromPageContents: false });
-          renderAll();
-          showToast('設定ファイル (' + file.name + ') を読み込みました');
-        });
-        e.target.value = '';
-      });
-    }
-
-    // 7. 「本文ファイル (CSV)」保存・読み込み
-    bindClick('btn-save-manuscript-csv', function () {
-      global.TategakiExporters.saveManuscriptToCsv(App.pages);
-      showToast('本文ファイル (.csv) を保存しました');
-    });
-    bindClick('btn-top-save-manuscript-csv', function () {
-      global.TategakiExporters.saveManuscriptToCsv(App.pages);
-      showToast('本文ファイル (.csv) を保存しました');
-    });
-
-    const inputManuscriptCsv = document.getElementById('input-load-manuscript-csv');
-    if (inputManuscriptCsv) {
-      inputManuscriptCsv.addEventListener('change', function (e) {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        file.text().then(function (csvText) {
-          const loadedPages = global.TategakiExporters.loadManuscriptFromCsv(csvText);
-          if (loadedPages && loadedPages.length > 0) {
-            App.pages = loadedPages;
-            App.activePageIndex = 0;
-            // raw_slice 列から rawSlice が復元できた区間はそれを使い、旧形式CSVは content へ自動フォールバックさせる
-            repaginateAllLinkedSections({ fromPageContents: false });
-            App.selectedPageIds = App.pages.map(function (p) {
-              return p.id;
-            });
-            syncEditorToCurrentPage();
-            renderAll();
-            showToast(
-              '本文ファイル (' + file.name + ' / ' + App.pages.length + '頁) を読み込みました'
-            );
-          } else {
-            showToast('有効なページデータが見つかりませんでした', true);
-          }
-        });
-        e.target.value = '';
-      });
-    }
-
-    // 8. プロジェクト一括JSON保存・読込・初期化
-    bindClick('btn-save-project-json', function () {
-      global.TategakiExporters.saveProjectBundleJson(App.settings, App.pages);
-      showToast('プロジェクト一括ファイル (.json) を保存しました');
-    });
-
-    const inputProjectJson = document.getElementById('input-load-project-json');
-    if (inputProjectJson) {
-      inputProjectJson.addEventListener('change', function (e) {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        file.text().then(function (txt) {
-          try {
-            const parsed = JSON.parse(txt);
-            if (parsed.settings) App.settings = parsed.settings;
-            if (Array.isArray(parsed.pages) && parsed.pages.length > 0) {
-              App.pages = parsed.pages;
-              App.activePageIndex = 0;
-              // content だけではページ境界の空行や [改ページ] 等が失われるため rawSlice から復元する
-              repaginateAllLinkedSections({ fromPageContents: false });
-              App.selectedPageIds = App.pages.map(function (p) {
-                return p.id;
-              });
-            }
-            syncSettingsToInputs();
-            syncEditorToCurrentPage();
-            renderAll();
-            showToast('プロジェクト一括ファイルを読み込みました');
-          } catch (err) {
-            showToast('JSONファイルの解析に失敗しました', true);
-          }
-        });
-        e.target.value = '';
-      });
-    }
-
-    // 確認モーダル（別窓：初期サンプル原稿に戻す ／ 新規作成）
+    // 確認モーダル（別窓：ファイル読み込み ／ 初期サンプル原稿に戻す ／ デフォルト設定に戻す ／ 新規作成）
     const confirmModal = document.getElementById('confirm-action-modal');
     const confirmMessageEl = document.getElementById('confirm-modal-message');
     let pendingConfirmAction = null;
@@ -5174,19 +4921,298 @@
       });
     }
 
+    // 1. 統合PDF出力
+    // 動作が保証できないためコメントアウト。使う場合は自己責任で
+    /*
+    bindClick('btn-export-pdf', function () {
+      runWithProgressModal(async function (updateProgress) {
+        await global.TategakiExporters.exportPrintReadyPdf(
+          App.pages,
+          App.settings,
+          App.customFontBytes,
+          updateProgress
+        );
+      }, '印刷所対応 統合PDFを書き出しました');
+    });
+    */
+
+    // 1-B. 全ページ連番PSD (ZIP一括) 出力
+    bindClick('btn-export-psd-zip', function () {
+      runWithProgressModal(async function (updateProgress) {
+        await global.TategakiExporters.exportSequentialPsdZip(
+          App.pages,
+          App.settings,
+          updateProgress
+        );
+      }, '全ページ連番PSD (ZIP) を書き出しました');
+    });
+
+    // 2. ページ連番PNG (ZIP) 出力
+    bindClick('btn-export-png-zip', function () {
+      runWithProgressModal(async function (updateProgress) {
+        await global.TategakiExporters.exportSequentialPngZip(
+          App.pages,
+          App.settings,
+          updateProgress
+        );
+      }, '全ページ連番PNG (ZIP) を書き出しました');
+    });
+
+    // 3. 現在のページ単体PNG出力（グレースケール設定時は8bitグレースケールPNGで出力）
+    bindClick('btn-export-single-png', async function () {
+      const page = getCurrentPage();
+      if (!page) return;
+      const dpi = App.settings.paper.dpi || 600;
+      const isGrayscale = App.settings.exportOptions.pdfColorMode === 'grayscale-k100';
+      const offCanvas = document.createElement('canvas');
+      global.TategakiTypesetter.renderPageToCanvas(
+        offCanvas,
+        page,
+        App.activePageIndex,
+        App.pages,
+        App.settings,
+        {
+          dpi: dpi,
+          includeTrimMarks: App.settings.exportOptions.includeTrimMarks,
+          includeBleedArea: App.settings.exportOptions.exportBleedMm > 0,
+          bleedMm: App.settings.exportOptions.exportBleedMm,
+          isExport: true,
+          grayscaleK100: isGrayscale
+        }
+      );
+      try {
+        const pngBytes = await global.TategakiExporters.canvasToPngUint8Array(
+          offCanvas,
+          isGrayscale,
+          dpi
+        );
+        const pageNum = (App.settings.headerFooter.startPageNumber || 1) + App.activePageIndex;
+        const blob = new Blob([pngBytes], { type: 'image/png' });
+        global.TategakiExporters.triggerDownload(
+          blob,
+          'page_' + String(pageNum).padStart(3, '0') + '_' + dpi + 'dpi.png'
+        );
+        showToast('P.' + pageNum + ' のPNG (' + dpi + 'dpi) を出力しました');
+      } catch (err) {
+        showToast('PNG出力エラー: ' + err.message, true);
+      }
+    });
+
+    // 4. 汎用フォーマット入出力 (EPUB3 / DOCX は動作が保証できないためコメントアウト。使う場合は自己責任で)
+    /* 動作が保証できないためコメントアウト。使う場合は自己責任で
+    bindClick('btn-export-epub', function () {
+      global.TategakiExporters.exportEpub3(App.pages, App.settings).then(function () {
+        showToast('EPUB3ファイルを書き出しました');
+      });
+    });
+
+    bindClick('btn-export-docx', function () {
+      global.TategakiExporters.exportDocx(App.pages, App.settings);
+      showToast('Word (.docx) ファイルを書き出しました');
+    });
+    */
+
+    // 4-B. プレーンテキスト (.txt) 出力（青空文庫形式とは別の純粋なテキスト出力）
+    bindClick('btn-export-plain-txt', function () {
+      global.TategakiExporters.exportPlainText(App.pages);
+      showToast('プレーンテキスト (.txt) を書き出しました');
+    });
+
+    bindClick('btn-export-aozora', function () {
+      global.TategakiExporters.exportAozoraText(App.pages);
+      showToast('青空文庫形式テキスト (.txt) を書き出しました');
+    });
+
+    bindClick('btn-export-md', function () {
+      global.TategakiExporters.exportMarkdown(App.pages);
+      showToast('Markdown (.md) ファイルを書き出しました');
+    });
+
+    // 5. 外部テキスト読み込み (.txt / .md) ※ .epub / .docx はコメントアウト
+    const inputImportUniversal = document.getElementById('input-import-universal');
+    if (inputImportUniversal) {
+      inputImportUniversal.addEventListener('change', function (e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const fileName = file.name;
+        file.text().then(function (txt) {
+          openConfirmModal(
+            '外部テキスト（' + fileName + '）を読み込みますか？（現在の原稿は置き換わります）',
+            function () {
+              const pages = global.TategakiExporters.importAozoraOrMarkdownText(
+                txt,
+                App.settings
+              );
+              if (pages && pages.length > 0) {
+                pushUndoSnapshot('外部テキストの読込');
+                App.pages = pages;
+                App.activePageIndex = 0;
+                repaginateAllLinkedSections({ fromPageContents: false });
+                App.selectedPageIds = App.pages.map(function (p) {
+                  return p.id;
+                });
+                syncEditorToCurrentPage({ forceReloadText: true });
+                renderAll();
+                showToast(
+                  'テキスト/Markdown（' + App.pages.length + '頁に自動分割）を読み込みました'
+                );
+              }
+            }
+          );
+        });
+        e.target.value = '';
+      });
+    }
+
+    // 6. 「設定ファイル (CSV)」保存・読み込み
+    bindClick('btn-save-settings-csv', function () {
+      global.TategakiExporters.saveSettingsToCsv(App.settings);
+      showToast('設定ファイル (.csv) を保存しました');
+    });
+    bindClick('btn-top-save-settings-csv', function () {
+      global.TategakiExporters.saveSettingsToCsv(App.settings);
+      showToast('設定ファイル (.csv) を保存しました');
+    });
+
+    const inputSettingsCsv = document.getElementById('input-load-settings-csv');
+    if (inputSettingsCsv) {
+      inputSettingsCsv.addEventListener('change', function (e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const fileName = file.name;
+        file.text().then(function (csvText) {
+          openConfirmModal(
+            '設定ファイル（' + fileName + '）を読み込みますか？（現在の設定が置き換わります）',
+            function () {
+              pushUndoSnapshot('設定CSVの読込');
+              App.settings = global.TategakiExporters.loadSettingsFromCsv(
+                csvText,
+                App.settings
+              );
+              syncSettingsToInputs();
+              repaginateAllLinkedSections({ fromPageContents: false });
+              renderAll();
+              showToast('設定ファイル (' + fileName + ') を読み込みました');
+            }
+          );
+        });
+        e.target.value = '';
+      });
+    }
+
+    // 7. 「本文ファイル (CSV)」保存・読み込み
+    bindClick('btn-save-manuscript-csv', function () {
+      global.TategakiExporters.saveManuscriptToCsv(App.pages);
+      showToast('本文ファイル (.csv) を保存しました');
+    });
+    bindClick('btn-top-save-manuscript-csv', function () {
+      global.TategakiExporters.saveManuscriptToCsv(App.pages);
+      showToast('本文ファイル (.csv) を保存しました');
+    });
+
+    const inputManuscriptCsv = document.getElementById('input-load-manuscript-csv');
+    if (inputManuscriptCsv) {
+      inputManuscriptCsv.addEventListener('change', function (e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const fileName = file.name;
+        file.text().then(function (csvText) {
+          openConfirmModal(
+            '本文ファイル（' + fileName + '）を読み込みますか？（現在の原稿は置き換わります）',
+            function () {
+              const loadedPages = global.TategakiExporters.loadManuscriptFromCsv(csvText);
+              if (loadedPages && loadedPages.length > 0) {
+                pushUndoSnapshot('本文CSVの読込');
+                App.pages = loadedPages;
+                App.activePageIndex = 0;
+                repaginateAllLinkedSections({ fromPageContents: false });
+                App.selectedPageIds = App.pages.map(function (p) {
+                  return p.id;
+                });
+                syncEditorToCurrentPage({ forceReloadText: true });
+                renderAll();
+                showToast(
+                  '本文ファイル (' + fileName + ' / ' + App.pages.length + '頁) を読み込みました'
+                );
+              } else {
+                showToast('有効なページデータが見つかりませんでした', true);
+              }
+            }
+          );
+        });
+        e.target.value = '';
+      });
+    }
+
+    // 8. プロジェクト一括JSON保存・読込・初期化
+    bindClick('btn-save-project-json', function () {
+      global.TategakiExporters.saveProjectBundleJson(App.settings, App.pages);
+      showToast('プロジェクト一括ファイル (.json) を保存しました');
+    });
+
+    const inputProjectJson = document.getElementById('input-load-project-json');
+    if (inputProjectJson) {
+      inputProjectJson.addEventListener('change', function (e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const fileName = file.name;
+        file.text().then(function (txt) {
+          openConfirmModal(
+            'プロジェクトJSON（' + fileName + '）を読み込みますか？（現在の原稿と設定が置き換わります）',
+            function () {
+              try {
+                const parsed = JSON.parse(txt);
+                pushUndoSnapshot('プロジェクトJSONの読込');
+                if (parsed.settings) App.settings = parsed.settings;
+                if (Array.isArray(parsed.pages) && parsed.pages.length > 0) {
+                  App.pages = parsed.pages;
+                  App.activePageIndex = 0;
+                  repaginateAllLinkedSections({ fromPageContents: false });
+                  App.selectedPageIds = App.pages.map(function (p) {
+                    return p.id;
+                  });
+                }
+                syncSettingsToInputs();
+                syncEditorToCurrentPage({ forceReloadText: true });
+                renderAll();
+                showToast('プロジェクト一括ファイルを読み込みました');
+              } catch (err) {
+                showToast('JSONファイルの解析に失敗しました', true);
+              }
+            }
+          );
+        });
+        e.target.value = '';
+      });
+    }
+
     bindClick('btn-reset-sample', function () {
       openConfirmModal('初期サンプル原稿に戻しますか？', function () {
         pushUndoSnapshot('初期サンプル原稿に戻す');
         App.settings = global.TategakiState.createDefaultSettings();
         App.pages = global.TategakiState.createSamplePages();
         App.activePageIndex = 0;
-        repaginateAllLinkedSections({ fromPageContents: true });
+        repaginateAllLinkedSections({ fromPageContents: false });
         App.selectedPageIds = [];
         syncSettingsToInputs();
         syncEditorToCurrentPage({ forceReloadText: true });
         renderAll();
         showToast('初期サンプル原稿・デフォルト設定に戻しました');
       });
+    });
+
+    bindClick('btn-reset-default-settings', function () {
+      openConfirmModal(
+        'デフォルト設定に戻しますか？（現在の原稿内容はそのまま維持されます）',
+        function () {
+          pushUndoSnapshot('デフォルト設定に戻す');
+          App.settings = global.TategakiState.createDefaultSettings();
+          syncSettingsToInputs();
+          repaginateAllLinkedSections({ fromPageContents: false });
+          renderAll();
+          showToast('設定のみをデフォルト（初期値）に戻しました');
+        }
+      );
     });
 
     bindClick('btn-new-blank-document', function () {
