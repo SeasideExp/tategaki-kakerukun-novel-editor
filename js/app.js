@@ -5078,7 +5078,8 @@
           if (loadedPages && loadedPages.length > 0) {
             App.pages = loadedPages;
             App.activePageIndex = 0;
-            repaginateAllLinkedSections({ fromPageContents: true });
+            // raw_slice 列から rawSlice が復元できた区間はそれを使い、旧形式CSVは content へ自動フォールバックさせる
+            repaginateAllLinkedSections({ fromPageContents: false });
             App.selectedPageIds = App.pages.map(function (p) {
               return p.id;
             });

@@ -1745,7 +1745,9 @@
         'content',
         'font_override_id',
         'font_override_size_pt',
-        'flow_break_before'
+        'flow_break_before',
+        // content だけではページ境界の空行や [改ページ] 等を復元できないため、連動区間の元テキスト断片も保存する
+        'raw_slice'
       ]
     ];
 
@@ -1776,7 +1778,12 @@
         p.content || '',
         p.fontOverride && p.fontOverride.fontId ? p.fontOverride.fontId : '',
         p.fontOverride && p.fontOverride.fontSizePt ? String(p.fontOverride.fontSizePt) : '',
-        p.flowBreakBefore ? 'true' : 'false'
+        p.flowBreakBefore ? 'true' : 'false',
+        p.type === 'body' || p.type === 'blank'
+          ? typeof p.rawSlice === 'string'
+            ? p.rawSlice
+            : p.content || ''
+          : ''
       ]);
     });
 
@@ -1840,7 +1847,7 @@
         };
       }
 
-      pagesOut.push({
+      const pageObj = {
         id: 'page-csv-' + (pagesOut.length + 1) + '-' + Math.random().toString(36).slice(2, 6),
         type: type,
         flowBreakBefore: flowBreakBefore,
@@ -1848,7 +1855,20 @@
         tocData: tocData,
         content: content,
         fontOverride: fontOverride
-      });
+      };
+
+      // raw_slice 列の無い旧形式CSVや、表計算ソフト等で content 列だけ編集された行は
+      // rawSlice を設定せず、従来どおり content から本文を復元させる
+      const rawSlice = r.length > 10 ? r[10] : undefined;
+      if (
+        (type === 'body' || type === 'blank') &&
+        typeof rawSlice === 'string' &&
+        rawSlice.indexOf(content) !== -1
+      ) {
+        pageObj.rawSlice = rawSlice;
+      }
+
+      pagesOut.push(pageObj);
     }
 
     return pagesOut;
