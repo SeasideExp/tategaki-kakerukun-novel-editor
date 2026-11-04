@@ -1404,14 +1404,14 @@
   }
 
   function bindSettingsInputs() {
-    const s = App.settings;
-
+    // 設定CSV/JSON読込や初期化で App.settings は別オブジェクトに差し替わるため、
+    // 起動時の参照を保持せず各ハンドラ内で毎回 App.settings を参照する
     onInput('cfg-paper-preset', function (val) {
-      s.paper.preset = val;
+      App.settings.paper.preset = val;
       const preset = global.TategakiState.PAPER_PRESETS[val];
       if (preset && val !== 'CUSTOM') {
-        s.paper.widthMm = preset.widthMm;
-        s.paper.heightMm = preset.heightMm;
+        App.settings.paper.widthMm = preset.widthMm;
+        App.settings.paper.heightMm = preset.heightMm;
         setVal('cfg-paper-width', preset.widthMm);
         setVal('cfg-paper-height', preset.heightMm);
       }
@@ -1419,143 +1419,143 @@
     });
 
     onInput('cfg-paper-width', function (val) {
-      s.paper.widthMm = Math.max(40, parseFloat(val) || 105);
-      s.paper.preset = 'CUSTOM';
+      App.settings.paper.widthMm = Math.max(40, parseFloat(val) || 105);
+      App.settings.paper.preset = 'CUSTOM';
       setVal('cfg-paper-preset', 'CUSTOM');
       scheduleRender();
     });
 
     onInput('cfg-paper-height', function (val) {
-      s.paper.heightMm = Math.max(50, parseFloat(val) || 148);
-      s.paper.preset = 'CUSTOM';
+      App.settings.paper.heightMm = Math.max(50, parseFloat(val) || 148);
+      App.settings.paper.preset = 'CUSTOM';
       setVal('cfg-paper-preset', 'CUSTOM');
       scheduleRender();
     });
 
     onInput('cfg-paper-dpi', function (val) {
-      s.paper.dpi = Math.max(72, parseInt(val, 10) || 600);
+      App.settings.paper.dpi = Math.max(72, parseInt(val, 10) || 600);
       scheduleRender();
     });
 
     onInput('cfg-paper-bleed', function (val) {
       const b = Math.max(0, parseFloat(val) || 0);
-      s.paper.bleedMm = b;
-      s.exportOptions.exportBleedMm = b;
+      App.settings.paper.bleedMm = b;
+      App.settings.exportOptions.exportBleedMm = b;
       setVal('cfg-pdf-bleed', b);
       scheduleRender();
     });
 
     onCheck('cfg-show-guides', function (checked) {
-      s.paper.showMarginGuides = checked;
+      App.settings.paper.showMarginGuides = checked;
       scheduleRender();
     });
 
     onCheck('cfg-show-trim-preview', function (checked) {
-      s.paper.showTrimMarksInPreview = checked;
+      App.settings.paper.showTrimMarksInPreview = checked;
       scheduleRender();
     });
 
     // 段組み・レイアウト（変更時は本文連動区間も自動で再ページ割り）
     onInput('cfg-columns', function (val) {
-      s.layout.columns = parseInt(val, 10) || 1;
+      App.settings.layout.columns = parseInt(val, 10) || 1;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-column-gap', function (val) {
-      s.layout.columnGapMm = Math.max(0, parseFloat(val) || 5);
+      App.settings.layout.columnGapMm = Math.max(0, parseFloat(val) || 5);
       scheduleRender();
     });
     onInput('cfg-chars-per-line', function (val) {
-      s.layout.charsPerLine = Math.max(5, Math.min(120, parseInt(val, 10) || 41));
+      App.settings.layout.charsPerLine = Math.max(5, Math.min(120, parseInt(val, 10) || 41));
       scheduleRepaginateAndRender();
     });
     onInput('cfg-lines-per-page', function (val) {
-      s.layout.linesPerPage = Math.max(2, Math.min(60, parseInt(val, 10) || 18));
+      App.settings.layout.linesPerPage = Math.max(2, Math.min(60, parseInt(val, 10) || 18));
       scheduleRepaginateAndRender();
     });
     onCheck('cfg-auto-line-spacing', function (checked) {
-      s.layout.autoLineSpacing = checked;
+      App.settings.layout.autoLineSpacing = checked;
       scheduleRender();
     });
     onInput('cfg-manual-line-gap', function (val) {
-      s.layout.manualLineGapMm = Math.max(0, parseFloat(val) || 1.5);
+      App.settings.layout.manualLineGapMm = Math.max(0, parseFloat(val) || 1.5);
       scheduleRender();
     });
     onCheck('cfg-auto-fit-char', function (checked) {
-      s.layout.autoFitCharPitch = checked;
+      App.settings.layout.autoFitCharPitch = checked;
       scheduleRender();
     });
 
     // 余白 (cm -> mm)
     onInput('cfg-margin-gutter-cm', function (val) {
-      s.layout.margins.gutterMm = Math.max(0, (parseFloat(val) || 1.5) * 10);
+      App.settings.layout.margins.gutterMm = Math.max(0, (parseFloat(val) || 1.5) * 10);
       scheduleRender();
     });
     onInput('cfg-margin-outer-cm', function (val) {
-      s.layout.margins.outerMm = Math.max(0, (parseFloat(val) || 1.0) * 10);
+      App.settings.layout.margins.outerMm = Math.max(0, (parseFloat(val) || 1.0) * 10);
       scheduleRender();
     });
     onInput('cfg-margin-top-cm', function (val) {
-      s.layout.margins.topMm = Math.max(0, (parseFloat(val) || 1.6) * 10);
+      App.settings.layout.margins.topMm = Math.max(0, (parseFloat(val) || 1.6) * 10);
       scheduleRender();
     });
     onInput('cfg-margin-bottom-cm', function (val) {
-      s.layout.margins.bottomMm = Math.max(0, (parseFloat(val) || 1.2) * 10);
+      App.settings.layout.margins.bottomMm = Math.max(0, (parseFloat(val) || 1.2) * 10);
       scheduleRender();
     });
 
     // フォント・文字サイズ（本文・扉・目次・ノンブル・ノンブル右横コメント）
     onInput('cfg-body-font', function (val) {
-      s.typography.body.fontId = val;
+      App.settings.typography.body.fontId = val;
       scheduleRender();
     });
     onInput('cfg-body-size', function (val) {
-      s.typography.body.fontSizePt = Math.max(4, parseFloat(val) || 8.5);
+      App.settings.typography.body.fontSizePt = Math.max(4, parseFloat(val) || 8.5);
       scheduleRender();
     });
     onCheck('cfg-enable-page-font-override', function (checked) {
-      s.typography.enablePageFontOverride = Boolean(checked);
+      App.settings.typography.enablePageFontOverride = Boolean(checked);
       updatePageFontOverrideVisibility();
       scheduleRender();
     });
     onInput('cfg-nombre-font', function (val) {
-      if (!s.typography.nombre) s.typography.nombre = {};
-      s.typography.nombre.fontId = val;
+      if (!App.settings.typography.nombre) App.settings.typography.nombre = {};
+      App.settings.typography.nombre.fontId = val;
       schedulePreviewAndCounterRender();
     });
     onInput('cfg-nombre-comment-font', function (val) {
-      if (!s.typography.nombreComment) s.typography.nombreComment = {};
-      s.typography.nombreComment.fontId = val;
+      if (!App.settings.typography.nombreComment) App.settings.typography.nombreComment = {};
+      App.settings.typography.nombreComment.fontId = val;
       schedulePreviewAndCounterRender();
     });
 
     onInput('cfg-tobira-font', function (val) {
-      s.typography.tobira.fontId = val;
+      App.settings.typography.tobira.fontId = val;
       scheduleRender();
     });
     onInput('cfg-tobira-title-size', function (val) {
-      s.typography.tobira.titleFontSizePt = Math.max(6, parseFloat(val) || 18);
+      App.settings.typography.tobira.titleFontSizePt = Math.max(6, parseFloat(val) || 18);
       scheduleRender();
     });
     onInput('cfg-tobira-sub-size', function (val) {
-      s.typography.tobira.subtitleFontSizePt = Math.max(6, parseFloat(val) || 10.5);
+      App.settings.typography.tobira.subtitleFontSizePt = Math.max(6, parseFloat(val) || 10.5);
       scheduleRender();
     });
     onInput('cfg-tobira-author-size', function (val) {
-      s.typography.tobira.authorFontSizePt = Math.max(6, parseFloat(val) || 10);
+      App.settings.typography.tobira.authorFontSizePt = Math.max(6, parseFloat(val) || 10);
       scheduleRender();
     });
     onInput('cfg-tobira-style', function (val) {
-      s.typography.tobira.layoutStyle = val;
+      App.settings.typography.tobira.layoutStyle = val;
       scheduleRender();
     });
     onCheck('cfg-tobira-border', function (checked) {
-      s.typography.tobira.showBorder = checked;
+      App.settings.typography.tobira.showBorder = checked;
       scheduleRender();
     });
     onInput('cfg-tobira-top-offset', function (val) {
       const num = parseFloat(val);
       const yMm = isNaN(num) ? 18 : num;
-      s.typography.tobira.titleYOffsetMm = yMm;
+      App.settings.typography.tobira.titleYOffsetMm = yMm;
       const curPage = getCurrentPage();
       if (curPage && curPage.type === 'tobira') {
         if (!curPage.tobiraData) curPage.tobiraData = {};
@@ -1567,7 +1567,7 @@
     onInput('cfg-tobira-x-offset', function (val) {
       const num = parseFloat(val);
       const xMm = isNaN(num) ? 0 : num;
-      s.typography.tobira.titleXOffsetMm = xMm;
+      App.settings.typography.tobira.titleXOffsetMm = xMm;
       const curPage = getCurrentPage();
       if (curPage && curPage.type === 'tobira') {
         if (!curPage.tobiraData) curPage.tobiraData = {};
@@ -1578,99 +1578,99 @@
     });
 
     onInput('cfg-toc-font', function (val) {
-      s.typography.toc.fontId = val;
+      App.settings.typography.toc.fontId = val;
       scheduleRender();
     });
     onInput('cfg-toc-heading-size', function (val) {
-      s.typography.toc.headingFontSizePt = Math.max(6, parseFloat(val) || 13);
+      App.settings.typography.toc.headingFontSizePt = Math.max(6, parseFloat(val) || 13);
       scheduleRender();
     });
     onInput('cfg-toc-item-size', function (val) {
-      s.typography.toc.itemFontSizePt = Math.max(6, parseFloat(val) || 9);
+      App.settings.typography.toc.itemFontSizePt = Math.max(6, parseFloat(val) || 9);
       scheduleRender();
     });
     onInput('cfg-toc-pitch', function (val) {
-      s.typography.toc.linePitchMm = Math.max(3, parseFloat(val) || 7.5);
+      App.settings.typography.toc.linePitchMm = Math.max(3, parseFloat(val) || 7.5);
       scheduleRender();
     });
     onInput('cfg-toc-indent', function (val) {
-      s.typography.toc.topIndentChars = Math.max(0, parseInt(val, 10) || 0);
+      App.settings.typography.toc.topIndentChars = Math.max(0, parseInt(val, 10) || 0);
       scheduleRender();
     });
     onCheck('cfg-toc-leader', function (checked) {
-      s.typography.toc.showLeaderDots = checked;
+      App.settings.typography.toc.showLeaderDots = checked;
       scheduleRender();
     });
     onInput('cfg-toc-num-style', function (val) {
-      s.typography.toc.numberStyle = val;
+      App.settings.typography.toc.numberStyle = val;
       setVal('toc-panel-num-style', val);
       scheduleRender();
     });
     onInput('toc-panel-num-style', function (val) {
-      s.typography.toc.numberStyle = val;
+      App.settings.typography.toc.numberStyle = val;
       setVal('cfg-toc-num-style', val);
       scheduleRender();
     });
     onInput('cfg-toc-align', function (val) {
-      s.typography.toc.layoutAlign = val;
+      App.settings.typography.toc.layoutAlign = val;
       setVal('toc-panel-layout-align', val);
       scheduleRender();
     });
     onInput('toc-panel-layout-align', function (val) {
-      s.typography.toc.layoutAlign = val;
+      App.settings.typography.toc.layoutAlign = val;
       setVal('cfg-toc-align', val);
       scheduleRender();
     });
 
     // ヘッダー・フッター
     onCheck('cfg-use-header', function (checked) {
-      s.headerFooter.useHeader = checked;
+      App.settings.headerFooter.useHeader = checked;
       schedulePreviewAndCounterRender();
     });
     onCheck('cfg-use-footer', function (checked) {
-      s.headerFooter.useFooter = checked;
+      App.settings.headerFooter.useFooter = checked;
       schedulePreviewAndCounterRender();
     });
     onInput('cfg-hf-placement', function (val) {
-      s.headerFooter.nombrePlacement = val;
-      if (val === 'footer' && !s.headerFooter.useFooter) {
-        s.headerFooter.useFooter = true;
+      App.settings.headerFooter.nombrePlacement = val;
+      if (val === 'footer' && !App.settings.headerFooter.useFooter) {
+        App.settings.headerFooter.useFooter = true;
         setChecked('cfg-use-footer', true);
-      } else if (val === 'header' && !s.headerFooter.useHeader) {
-        s.headerFooter.useHeader = true;
+      } else if (val === 'header' && !App.settings.headerFooter.useHeader) {
+        App.settings.headerFooter.useHeader = true;
         setChecked('cfg-use-header', true);
       }
       schedulePreviewAndCounterRender();
     });
     onInput('cfg-hf-font-size', function (val) {
-      s.headerFooter.fontSizePt = Math.max(4, parseFloat(val) || 7);
+      App.settings.headerFooter.fontSizePt = Math.max(4, parseFloat(val) || 7);
       schedulePreviewAndCounterRender();
     });
     onInput('cfg-hf-start-num', function (val) {
-      s.headerFooter.startPageNumber = parseInt(val, 10) || 1;
+      App.settings.headerFooter.startPageNumber = parseInt(val, 10) || 1;
       scheduleRepaginateAndRender();
     });
     onCheck('cfg-hf-hide-tobira', function (checked) {
-      s.headerFooter.hideOnTobira = checked;
+      App.settings.headerFooter.hideOnTobira = checked;
       schedulePreviewAndCounterRender();
     });
     onCheck('cfg-hf-hide-toc', function (checked) {
-      s.headerFooter.hideOnToc = checked;
+      App.settings.headerFooter.hideOnToc = checked;
       schedulePreviewAndCounterRender();
     });
     onInput('cfg-hf-odd-gap-cm', function (val) {
       const num = parseFloat(val);
-      s.headerFooter.oddPageCommentGapMm = isNaN(num) ? 5.0 : Math.max(0, num * 10);
+      App.settings.headerFooter.oddPageCommentGapMm = isNaN(num) ? 5.0 : Math.max(0, num * 10);
       schedulePreviewAndCounterRender();
     });
     onInput('cfg-hf-odd-source', function (val) {
-      s.headerFooter.oddPageCommentSource = val;
+      App.settings.headerFooter.oddPageCommentSource = val;
       schedulePreviewAndCounterRender();
     });
     onInput('cfg-hf-odd-custom', function (val) {
-      s.headerFooter.customOddPageComment = val;
-      if (val && val.trim() !== '' && s.headerFooter.oddPageCommentSource !== 'custom') {
-        s.headerFooter.oddPageCommentSource = 'custom';
+      App.settings.headerFooter.customOddPageComment = val;
+      if (val && val.trim() !== '' && App.settings.headerFooter.oddPageCommentSource !== 'custom') {
+        App.settings.headerFooter.oddPageCommentSource = 'custom';
         setVal('cfg-hf-odd-source', 'custom');
       }
       schedulePreviewAndCounterRender();
@@ -1678,98 +1678,98 @@
 
     // 組版処理ルール（変更時は本文連動区間も自動で再ページ割り）
     onCheck('cfg-enable-kinsoku', function (checked) {
-      s.rules.enableKinsoku = checked;
+      App.settings.rules.enableKinsoku = checked;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-line-end-mode', function (val) {
-      s.rules.lineEndAdjustMode = val;
+      App.settings.rules.lineEndAdjustMode = val;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-auto-tcy-digits', function (val) {
-      s.rules.autoTcyDigits = parseInt(val, 10) || 0;
+      App.settings.rules.autoTcyDigits = parseInt(val, 10) || 0;
       scheduleRepaginateAndRender();
     });
     onCheck('cfg-auto-tcy-excl', function (checked) {
-      s.rules.autoTcyExclamation = checked;
+      App.settings.rules.autoTcyExclamation = checked;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-latin-mode', function (val) {
-      s.rules.latinMode = val;
+      App.settings.rules.latinMode = val;
       scheduleRepaginateAndRender();
     });
     onCheck('cfg-latin-word-wrap', function (checked) {
-      s.rules.latinWordWrap = checked;
+      App.settings.rules.latinWordWrap = checked;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-latin-waou-spacing', function (val) {
-      s.rules.latinWaouSpacing = val;
+      App.settings.rules.latinWaouSpacing = val;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-latin-font-scale', function (val) {
       const pct = Math.max(70, Math.min(125, parseFloat(val) || 95));
-      s.rules.latinFontScale = pct / 100;
+      App.settings.rules.latinFontScale = pct / 100;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-latin-baseline-offset', function (val) {
       const off = parseFloat(val);
-      s.rules.latinBaselineOffset = isNaN(off) ? 0 : Math.max(-0.4, Math.min(0.4, off));
+      App.settings.rules.latinBaselineOffset = isNaN(off) ? 0 : Math.max(-0.4, Math.min(0.4, off));
       scheduleRender();
     });
     onCheck('cfg-connect-dash', function (checked) {
-      s.rules.connectDashEllipsis = checked;
+      App.settings.rules.connectDashEllipsis = checked;
       scheduleRender();
     });
     onInput('cfg-bracket-spacing', function (val) {
-      s.rules.bracketSpacing = val;
+      App.settings.rules.bracketSpacing = val;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-punct-spacing', function (val) {
-      s.rules.punctuationAfterSpacing = val;
+      App.settings.rules.punctuationAfterSpacing = val;
       scheduleRepaginateAndRender();
     });
     onCheck('cfg-auto-excl-space', function (checked) {
-      s.rules.autoFullSpaceAfterExclQuest = checked;
+      App.settings.rules.autoFullSpaceAfterExclQuest = checked;
       scheduleRepaginateAndRender();
     });
     onInput('cfg-kaicho-target', function (val) {
-      s.rules.kaichoTarget = val;
+      App.settings.rules.kaichoTarget = val;
       scheduleRepaginateAndRender();
     });
     onCheck('cfg-check-indent-warning', function (checked) {
-      s.rules.checkIndentWarning = checked;
+      App.settings.rules.checkIndentWarning = checked;
       setChecked('chk-inline-indent-warning', checked);
       updateIndentWarningBar();
       scheduleRender();
     });
     onCheck('chk-inline-indent-warning', function (checked) {
-      s.rules.checkIndentWarning = checked;
+      App.settings.rules.checkIndentWarning = checked;
       setChecked('cfg-check-indent-warning', checked);
       updateIndentWarningBar();
       scheduleRender();
     });
     onCheck('chk-page-bg-highlight', function (checked) {
-      s.rules.showPageBgHighlight = Boolean(checked);
+      App.settings.rules.showPageBgHighlight = Boolean(checked);
       renderEditorPageBgBackdrop();
       saveToLocalStorage();
     });
 
     // 出力設定
     onInput('cfg-pdf-color', function (val) {
-      s.exportOptions.pdfColorMode = val;
+      App.settings.exportOptions.pdfColorMode = val;
     });
     // 動作が保証できないためコメントアウト。使う場合は自己責任で
     // onInput('cfg-pdf-standard', function (val) {
-    //   s.exportOptions.pdfStandard = val;
+    //   App.settings.exportOptions.pdfStandard = val;
     // });
     onCheck('cfg-pdf-trim', function (checked) {
-      s.exportOptions.includeTrimMarks = checked;
+      App.settings.exportOptions.includeTrimMarks = checked;
     });
     onInput('cfg-pdf-bleed', function (val) {
-      s.exportOptions.exportBleedMm = parseFloat(val) || 0;
+      App.settings.exportOptions.exportBleedMm = parseFloat(val) || 0;
     });
     // 動作が保証できないためコメントアウト。使う場合は自己責任で
     // onInput('cfg-epub-layout', function (val) {
-    //   s.exportOptions.epubLayout = val;
+    //   App.settings.exportOptions.epubLayout = val;
     // });
 
     // カスタムフォントファイル読み込み (.ttf / .otf / .woff / .woff2) 複数追加対応
@@ -1834,25 +1834,25 @@
           .then(function (loadedEntries) {
             if (!loadedEntries || loadedEntries.length === 0) return;
             const lastEntry = loadedEntries[loadedEntries.length - 1];
-            s.typography.body.fontId = lastEntry.id;
+            App.settings.typography.body.fontId = lastEntry.id;
             populateFontSelects();
             setVal('cfg-body-font', lastEntry.id);
             setVal(
               'cfg-tobira-font',
-              resolveValidFontId(s.typography.tobira && s.typography.tobira.fontId)
+              resolveValidFontId(App.settings.typography.tobira && App.settings.typography.tobira.fontId)
             );
             setVal(
               'cfg-toc-font',
-              resolveValidFontId(s.typography.toc && s.typography.toc.fontId)
+              resolveValidFontId(App.settings.typography.toc && App.settings.typography.toc.fontId)
             );
             setVal(
               'cfg-nombre-font',
-              resolveValidFontId(s.typography.nombre && s.typography.nombre.fontId)
+              resolveValidFontId(App.settings.typography.nombre && App.settings.typography.nombre.fontId)
             );
             setVal(
               'cfg-nombre-comment-font',
               resolveValidFontId(
-                s.typography.nombreComment && s.typography.nombreComment.fontId
+                App.settings.typography.nombreComment && App.settings.typography.nombreComment.fontId
               )
             );
             const names = loadedEntries.map(function (en) {
