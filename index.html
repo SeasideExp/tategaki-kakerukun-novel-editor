@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>縦書き同人小説書けるくん ― 小説執筆・組版・印刷所入稿エディタ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Klee+One:wght@400;600&family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@400;600;700&family=Sawarabi+Mincho&family=Shippori+Mincho:wght@400;600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=Zen+Old+Mincho:wght@400;600;700&display=swap"
+  />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <!-- トップヘッダー：タイトル・リアルタイムカウンター・クイックCSV保存/読込 -->
+  <header class="app-header">
+    <div class="brand-area">
+      <div class="brand-seal">縦</div>
+      <div>
+        <div class="app-title-row">
+          <h1 class="app-title">縦書き同人小説書けるくん</h1>
+          <button type="button" id="btn-about-tool" class="btn-about-tiny" title="このツールについて表示">
+            このツールについて
+          </button>
+          <button type="button" id="btn-help-tool" class="btn-about-tiny" title="ヘルプ・機能ガイドを表示">
+            ヘルプ
+          </button>
+        </div>
+        <p class="app-subtitle">小説執筆＆見開きプレビュー可能なエディタ　Ver.1.00</p>
+      </div>
+    </div>
+
+    <!-- 日付・今日/今月経過ゲージ・締切残り時間ゲージ表示バー -->
+    <div id="header-time-deadline-bar" class="header-time-deadline-bar">
+      <span id="header-date-display" class="header-date-display">2026年10月31日(土)</span>
+      <div class="time-gauge-item" title="今日の経過率（0時＝0% 〜 24時＝100%）">
+        <span class="time-gauge-label">今日<strong id="time-today-pct">0</strong>%</span>
+        <span class="time-gauge-track" aria-hidden="true">
+          <span id="time-today-fill" class="time-gauge-fill elapsed-fill" style="width: 0%;"></span>
+        </span>
+      </div>
+      <div class="time-gauge-item" title="今月の経過率（1日0時＝0% 〜 月末24時＝100%）">
+        <span class="time-gauge-label">今月<strong id="time-month-pct">0</strong>%</span>
+        <span class="time-gauge-track" aria-hidden="true">
+          <span id="time-month-fill" class="time-gauge-fill elapsed-fill" style="width: 0%;"></span>
+        </span>
+      </div>
+      <button
+        type="button"
+        id="btn-open-deadline-modal"
+        class="time-gauge-item deadline-gauge-btn"
+        title="クリックして締切日時を設定・変更・リセット"
+      >
+        <span id="time-deadline-label" class="time-gauge-label">締切未設定</span>
+        <span id="time-deadline-track" class="time-gauge-track deadline-track" style="display: none;" aria-hidden="true">
+          <span id="time-deadline-fill" class="time-gauge-fill deadline-fill" style="width: 100%;"></span>
+        </span>
+      </button>
+    </div>
+
+    <!-- 多様なカウント方式バー（全ページ合計） -->
+    <div id="header-counter-bar" class="header-counter-bar">
+      <div class="counter-group total-group">
+        <span class="counter-group-title">全ページ合計</span>
+        <div id="metric-total-raw" class="counter-metric">
+          <span class="metric-label">純粋文字数</span>
+          <strong id="cnt-total-raw">0</strong>
+        </div>
+        <div id="metric-total-nospace" class="counter-metric">
+          <span class="metric-label">空白・改行除外</span>
+          <strong id="cnt-total-nospace">0</strong>
+        </div>
+        <div id="metric-total-effective" class="counter-metric highlight">
+          <span class="metric-label">実文字数(ルビ・制御除外)</span>
+          <strong id="cnt-total-effective">0</strong>
+        </div>
+        <div id="metric-total-sheets" class="counter-metric" style="display: none;">
+          <span class="metric-label">400字詰換算</span>
+          <strong id="cnt-total-sheets">0</strong><small>枚</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- クイック本文CSV保存・読込ボタン群 -->
+    <div class="header-actions">
+      <button
+        type="button"
+        id="btn-top-save-manuscript-csv"
+        class="btn-header"
+        title="本文CSV保存：全ページの本文・扉・目次データをCSVとして保存します (Ctrl+S)"
+      >
+        セーブ
+      </button>
+      <label
+        id="lbl-top-load-manuscript-csv"
+        class="btn-header file-label"
+        title="本文CSV読込：保存した本文CSVファイルを読み込みます"
+      >
+        ロード
+        <input type="file" id="input-load-manuscript-csv" accept=".csv" hidden />
+      </label>
+    </div>
+  </header>
+
+  <!-- メイン構造（左：ページ別執筆エディタ / 中央：見開きプレビュー / 右端：折り畳み可能な環境・組版・入稿設定サイドバー） -->
+  <div id="workspace-container" class="workspace-container left-collapsed">
+    <!-- 左ペイン：ページ属性別 執筆エディタ -->
+    <main class="editor-pane">
+      <div class="editor-top-bar">
+        <div class="editor-page-indicator">
+          <span id="editor-current-page-label" class="page-indicator-badge">P.1 (奇数頁・見開き左)</span>
+        </div>
+
+        <div class="page-type-selector" aria-label="現在のページ属性">
+          <span class="selector-caption">ページ属性:</span>
+          <span class="page-type-btn" data-page-type="body">本文</span>
+          <span class="page-type-btn" data-page-type="tobira">扉</span>
+          <span class="page-type-btn" data-page-type="toc">目次</span>
+          <span class="page-type-btn" data-page-type="blank" title="挿絵を追加するため等に空けておくページ、本文が入りません">空白</span>
+        </div>
+
+        <div id="page-override-controls" class="page-override-controls" style="display: none;">
+          <select id="page-font-override" title="このページだけ個別フォントを指定"></select>
+          <input
+            type="number"
+            id="page-size-override"
+            step="0.5"
+            min="5"
+            max="36"
+            placeholder="標準pt"
+            title="このページだけ文字サイズ(pt)を個別変更"
+          />
+        </div>
+      </div>
+
+      <!-- 「扉」属性ページ専用の編集フォーム -->
+      <div id="editor-panel-tobira" class="special-editor-panel" style="display: none;">
+        <div class="special-panel-header">
+          <strong>「扉」ページ設定</strong>
+          <small>※ここの「小説タイトル」が奇数頁ヘッダー（ノンブルの0.5cm右横）へ自動的に入ります</small>
+        </div>
+        <div class="tobira-form-grid">
+          <div class="cfg-field">
+            <label for="tobira-title">小説タイトル（表題）</label>
+            <input type="text" id="tobira-title" placeholder="小説のタイトルを入力" />
+          </div>
+          <div class="cfg-field">
+            <label for="tobira-subtitle">サブタイトル（副題）</label>
+            <input type="text" id="tobira-subtitle" placeholder="― サブタイトル ―" />
+          </div>
+          <div class="cfg-field">
+            <label for="tobira-author">著者名・サークル名</label>
+            <input type="text" id="tobira-author" placeholder="サークル名／著者名" />
+          </div>
+          <div class="cfg-field">
+            <label for="tobira-note">発行記・イベント名・備考</label>
+            <input type="text" id="tobira-note" placeholder="二〇二六年　発行" />
+          </div>
+        </div>
+        <div class="tobira-title-pos-bar">
+          <span class="tobira-pos-caption">小説タイトル（表題）位置微調整:</span>
+          <div class="tobira-pos-field">
+            <label for="tobira-title-offset-y">上下（天からの距離 mm）</label>
+            <input type="number" id="tobira-title-offset-y" step="0.5" min="-20" max="100" value="18" title="数値を大きくすると下へ、小さくすると上へ移動します" />
+          </div>
+          <div class="tobira-pos-field">
+            <label for="tobira-title-offset-x">左右（横微調整 mm）</label>
+            <input type="number" id="tobira-title-offset-x" step="0.5" min="-50" max="50" value="0" title="プラスで右へ、マイナスで左へ微調整します" />
+          </div>
+          <button type="button" id="btn-reset-tobira-title-pos" class="btn-chip" title="小説タイトルの位置を標準（上下18mm・左右0mm）に戻します">
+            位置リセット
+          </button>
+        </div>
+      </div>
+
+      <!-- 「目次」属性ページ専用の編集フォーム -->
+      <div id="editor-panel-toc" class="special-editor-panel" style="display: none;">
+        <div class="special-panel-header">
+          <strong>「目次」ページ設定</strong>
+          <div class="toc-panel-actions">
+            <button type="button" id="btn-auto-collect-toc" class="btn-chip">扉から見出しを自動抽出</button>
+            <button type="button" id="btn-add-toc-item" class="btn-chip">+ 項目を追加</button>
+          </div>
+        </div>
+        <div class="cfg-grid-3" style="margin-bottom: 6px; align-items: end;">
+          <div class="cfg-field">
+            <label for="toc-heading-input">目次見出し（空欄で非表示）</label>
+            <input type="text" id="toc-heading-input" value="目　次" placeholder="空欄にすると見出しを表示しません" />
+          </div>
+          <div class="cfg-field">
+            <label for="toc-panel-num-style">ページ数表記</label>
+            <select id="toc-panel-num-style">
+              <option value="kanji">漢数字（三、十二...）</option>
+              <option value="arabic-tcy">半角数字（縦中横）</option>
+            </select>
+          </div>
+          <div class="cfg-field">
+            <label for="toc-panel-layout-align">レイアウト</label>
+            <select id="toc-panel-layout-align">
+              <option value="right">右揃え（標準）</option>
+              <option value="center">中央揃え（見出しを含めない）</option>
+              <option value="center-all">中央揃え（見出しを含める）</option>
+            </select>
+          </div>
+        </div>
+        <div id="toc-items-list" class="toc-items-list"></div>
+      </div>
+
+      <!-- 本文＆自由テキスト編集エリア（常時連動・リアルタイム自動ページ割り＆連動区切り対応） -->
+      <div id="editor-panel-body" class="body-editor-container">
+        <div id="linked-section-bar" class="linked-section-bar collapsed">
+          <div class="linked-section-header-row">
+            <button
+              type="button"
+              id="btn-toggle-linked-section"
+              class="btn-toggle-linked-section"
+              title="本文連動区間の詳細・ページ操作を開閉する"
+            >
+              <span id="linked-section-toggle-arrow" class="linked-section-toggle-arrow">▶</span>
+              <span id="linked-section-badge" class="linked-section-badge">
+                🔗 本文連動区間 #1 (P.3〜P.7 ・ 5頁連動中)
+              </span>
+            </button>
+            <div class="linked-section-actions">
+              <button
+                type="button"
+                id="btn-split-flow-at-cursor"
+                class="btn-flow-action"
+                title="エディタの現在カーソル位置で本文の連動を区切り、カーソル以降のテキストを新しい独立した連動区間（次頁以降）に分割します"
+              >
+                ✂ カーソル位置で連動を区切る
+              </button>
+              <button
+                type="button"
+                id="btn-toggle-page-flow-break"
+                class="btn-flow-action"
+                title="選択中のページ境界で本文連動を区切る／前後の連動区間と結合するを切り替えます"
+              >
+                ✂ この頁から連動を区切る
+              </button>
+              <button
+                type="button"
+                id="btn-add-new-flow-section"
+                class="btn-flow-action"
+                title="現在の連動区間の後ろに、連動を区切った新しい本文区間（新章・別エピソード用）を追加します"
+              >
+                ＋ 新規連動区間を追加
+              </button>
+              <span
+                class="flow-feature-help-tip"
+                title="本文入力・削除に応じてページを自動増減 ／ ✂連動区切りで章単位の独立管理が可能"
+              >
+                （この機能について）
+              </span>
+            </div>
+          </div>
+          <div id="linked-section-page-pills" class="linked-section-page-pills" aria-label="本文連動区間とページ構成"></div>
+        </div>
+
+        <div class="writing-assist-toolbar">
+          <button
+            type="button"
+            id="btn-undo-action"
+            class="btn-assist btn-undo-assist"
+            title="直前の操作・入力を元に戻す (Ctrl+Z)"
+            disabled
+          >
+            <svg class="icon-undo-svg" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M5.8 3.2L1.5 7.2l4.3 4V8.5h4.2c2.1 0 3.5 1.1 3.9 3.1.1.4.6.4.7 0 .3-3.3-1.8-5.7-4.9-5.7H5.8V3.2z"
+              />
+            </svg>
+            <span>元に戻す</span>
+          </button>
+          <button type="button" id="btn-insert-ruby" class="btn-assist" title="ルビ ｜親《ルビ》（｜親文字《ルビ》を挿入）">
+            ルビ
+          </button>
+          <button type="button" id="btn-insert-tcy" class="btn-assist" title="縦中横 [縦中横:12]（手動の縦中横タグを挿入）">
+            縦中横
+          </button>
+          <button type="button" id="btn-insert-dash" class="btn-assist" title="2倍ダッシュ ――（2倍ダッシュを挿入）">
+            ダッシュ
+          </button>
+          <button type="button" id="btn-insert-ellipsis" class="btn-assist" title="三点リーダー ……（三点リーダーを挿入）">
+            三点リーダー
+          </button>
+          <button type="button" id="btn-insert-pagebreak" class="btn-assist" title="[改ページ]（同一連動区間内で次のページへ送る改ページを挿入）">
+            [改ページ]
+          </button>
+          <button type="button" id="btn-insert-kaicho" class="btn-assist" title="[改丁]（同一連動区間内で次の奇数頁または偶数頁から開始する改丁を挿入）">
+            [改丁]
+          </button>
+
+          <!-- 本文内検索窓（[改丁] の横に配置・連続検索＆プレビューハイライト対応） -->
+          <div class="editor-search-box" role="search" aria-label="本文内検索">
+            <input
+              type="search"
+              id="editor-search-input"
+              class="editor-search-input"
+              placeholder="本文内を検索..."
+              aria-label="本文内を検索"
+            />
+            <span id="editor-search-count" class="editor-search-count" title="該当件数">0/0</span>
+            <button
+              type="button"
+              id="btn-search-prev"
+              class="btn-assist btn-search-nav"
+              title="前の該当箇所を検索 (Shift+Enter)"
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              id="btn-search-next"
+              class="btn-assist btn-search-nav"
+              title="次の該当箇所を連続検索 (Enter)"
+            >
+              ▼ 次
+            </button>
+          </div>
+        </div>
+
+        <div id="editor-textarea-stage" class="editor-textarea-stage">
+          <div id="editor-page-bg-backdrop" class="editor-page-bg-backdrop" aria-hidden="true">
+            <div id="editor-page-bg-content" class="editor-page-bg-content"></div>
+          </div>
+          <textarea
+            id="editor-body-textarea"
+            class="novel-textarea"
+            spellcheck="false"
+          ></textarea>
+        </div>
+
+        <!-- 割付ページ背景色表示切替 ＆ 文頭の空白1文字（字下げ）忘れ注意喚起＆補完バー -->
+        <div id="indent-assist-bar" class="indent-assist-bar">
+          <div class="indent-assist-checks-stack">
+            <label class="indent-check-toggle" title="割付されているページに応じて本文入力欄の背景色を若干変化させ、どこからどこまでが何ページ目のテキストか判別できるようにします">
+              <input type="checkbox" id="chk-page-bg-highlight" />
+              <span>割付ページ別の背景色表示</span>
+            </label>
+            <div class="indent-assist-left">
+              <label class="indent-check-toggle" title="地の文の文頭に全角空白1文字が入っているか自動チェックします">
+                <input type="checkbox" id="chk-inline-indent-warning" checked />
+                <span>文頭1字下げチェック</span>
+              </label>
+              <span id="indent-warning-status" class="indent-warning-status is-ok">
+                ✓ 文頭1字下げOK
+              </span>
+            </div>
+          </div>
+          <div id="indent-assist-actions" class="indent-assist-actions">
+            <button
+              type="button"
+              id="btn-jump-indent-warning"
+              class="btn-indent-action"
+              style="display: none;"
+              title="文頭が1字下げされていない次の該当行へカーソルを移動します"
+            >
+              🔍 次の字下げ忘れ行へ移動
+            </button>
+            <button
+              type="button"
+              id="btn-fix-current-line-indent"
+              class="btn-indent-action"
+              title="現在カーソルがある行の先頭に全角空白（　）を1文字挿入します"
+            >
+              ＋ 現在行頭を1字下げ
+            </button>
+          </div>
+        </div>
+
+        <div class="editor-status-footer">
+          <span id="editor-line-usage" class="line-usage-badge">組版行数: 0 / 18 行</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- エディタとプレビューの境界リサイズバー（ドラッグで幅比率を自由に変更可能・ダブルクリックでリセット） -->
+    <div
+      id="pane-splitter"
+      class="pane-splitter"
+      role="separator"
+      aria-orientation="vertical"
+      title="ドラッグしてエディタとプレビューの境界位置を調整（ダブルクリックで標準幅に戻す）"
+    >
+      <span class="pane-splitter-grip">⋮</span>
+    </div>
+
+    <!-- 中央ペイン：見開きプレビュー ／ 単ページ表示 ／ 9頁グリッド（D&D入れ替え対応） -->
+    <section class="preview-pane">
+      <div class="preview-toolbar">
+        <div class="view-mode-group">
+          <button type="button" id="btn-prev-page" class="btn-chip btn-nav-arrow" title="次のページ（グリッド時は次9頁）へ (←)">
+            ◀
+          </button>
+          <button type="button" id="btn-next-page" class="btn-chip btn-nav-arrow" title="前のページ（グリッド時は前9頁）へ (→)">
+            ▶
+          </button>
+          <button type="button" id="btn-view-spread" class="btn-chip active" title="右に偶数頁・左に奇数頁を並べる見開きプレビュー">
+            見開きプレビュー
+          </button>
+          <button type="button" id="btn-view-single" class="btn-chip" title="1ページずつ拡大表示">
+            単ページ表示
+          </button>
+          <button type="button" id="btn-view-grid" class="btn-chip" title="3×3のグリッド状に9頁ずつ表示し、ドラッグ＆ドロップでページ順序を入れ替え">
+            9頁グリッド（D&amp;D入替）
+          </button>
+          <select id="grid-direction-select" class="pairing-select" style="display: none;" title="9頁グリッドの配置順">
+            <option value="ltr" selected>配置：左上から順 (1→2→3)</option>
+            <option value="rtl">配置：右上から縦書き順 (3←2←1)</option>
+          </select>
+        </div>
+
+        <div class="spread-nav-group">
+          <span id="grid-range-label" class="grid-range-label" style="display: none;">1〜9 頁</span>
+          <!-- プレビュー解像度・表示倍率は常時100%固定のため廃止（将来的に使用する可能性があるためコメントアウトで温存）
+          <select id="preview-zoom-select" class="zoom-select" title="プレビュー解像度・表示倍率">
+            <option value="0.85">85%</option>
+            <option value="1.0" selected>100%</option>
+            <option value="1.25">125%</option>
+            <option value="1.5">150%</option>
+          </select>
+          -->
+        </div>
+      </div>
+
+      <!-- プレビュー表示領域（見開きステージ ＆ 3×3 9頁グリッドステージ） -->
+      <div class="spread-viewport">
+        <!-- 見開き／単ページステージ -->
+        <div id="spread-stage" class="spread-stage">
+          <!-- 左側：奇数頁（製本時ノド＝右側1.5cm、小口＝左側1.0cm、ヘッダーノンブル左＋0.5cm右横に小説タイトル） -->
+          <div id="spread-left-card" class="spread-page-card left-odd-page">
+            <div id="spread-left-label" class="spread-page-caption">左：奇数頁</div>
+            <div class="canvas-paper-frame">
+              <canvas id="spread-left-canvas"></canvas>
+            </div>
+          </div>
+
+          <!-- 中央ノド（綴じ目）インジケータ -->
+          <div class="spread-spine-divider" title="製本ノド（綴じ目）：偶数頁の左端1.5cm・奇数頁の右端1.5cm">
+            <span>ノド（綴じ）</span>
+          </div>
+
+          <!-- 右側：偶数頁（製本時ノド＝左側1.5cm、小口＝右側1.0cm、ヘッダーノンブル右） -->
+          <div id="spread-right-card" class="spread-page-card right-even-page">
+            <div id="spread-right-label" class="spread-page-caption">右：偶数頁</div>
+            <div class="canvas-paper-frame">
+              <canvas id="spread-right-canvas"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- 9頁グリッドステージ（3×3 グリッド・ドラッグ＆ドロップ入れ替え対応） -->
+        <div id="grid-overview-stage" class="grid-overview-stage" style="display: none;">
+          <div class="grid-overview-header">
+            <span class="grid-overview-hint">
+              <strong>9頁グリッドモード：</strong>カードをドラッグ＆ドロップしてページ順序を自由に入れ替えられます（クリックで編集頁を選択 ／ ダブルクリックで見開き表示へ切替）
+            </span>
+          </div>
+          <div id="grid-cards-container" class="grid-cards-matrix"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 右サイドバー折り畳み時のスリムバー（通常時表示・右端） -->
+    <div id="left-sidebar-rail" class="left-sidebar-rail">
+      <button type="button" id="btn-expand-left-sidebar" class="rail-expand-btn" title="右側の環境・組版・入稿設定パネルを展開する">
+        ◀
+      </button>
+      <div class="rail-Quick-tabs">
+        <button type="button" class="rail-tab-btn" data-open-tab="tab-export" title="入力・出力">ファイル</button>
+        <button type="button" class="rail-tab-btn" data-open-tab="tab-layout" title="サイズ設定を開く">サイズ</button>
+        <button type="button" class="rail-tab-btn" data-open-tab="tab-font" title="文字・フォント・扉・目次設定を開く">文字</button>
+        <button type="button" class="rail-tab-btn" data-open-tab="tab-rules" title="ヘッダー・組版設定を開く">組版</button>
+        <button type="button" class="rail-tab-btn" data-open-tab="tab-theme" title="UI設定（色調・ゲージ・ショートカット・設定CSV）を開く">UI設定</button>
+      </div>
+    </div>
+
+    <!-- 右サイドバー：環境・組版・入稿設定パネル（展開時表示・見開きプレビューの右側） -->
+    <aside id="settings-sidebar" class="settings-sidebar">
+      <div class="sidebar-collapse-bar">
+        <span class="sidebar-collapse-title">環境・組版・入稿設定</span>
+        <button type="button" id="btn-collapse-left-sidebar" class="btn-collapse-sidebar" title="設定パネルを右端へ折り畳む">
+          折り畳む ▶
+        </button>
+      </div>
+      <nav class="sidebar-tabs">
+        <button type="button" class="sidebar-tab-btn active" data-tab="tab-export" title="入力・出力">ファイル</button>
+        <button type="button" class="sidebar-tab-btn" data-tab="tab-layout">サイズ</button>
+        <button type="button" class="sidebar-tab-btn" data-tab="tab-font">文字</button>
+        <button type="button" class="sidebar-tab-btn" data-tab="tab-rules">組版</button>
+        <button type="button" class="sidebar-tab-btn" data-tab="tab-theme">UI設定</button>
+      </nav>
+
+      <!-- Tab 1: ファイル（入力・出力：印刷・入稿用ファイル書き出し ＆ テキスト入出力 ＆ 保存） -->
+      <section id="tab-export" class="sidebar-tab-panel active">
+        <div class="cfg-card highlight-card">
+          <h3>印刷・入稿用ファイル書き出し（DTP出力）</h3>
+          <div class="cfg-row">
+            <label for="cfg-pdf-color">出力カラーモード（PSD / PNG）</label>
+            <select id="cfg-pdf-color">
+              <option value="grayscale-k100">グレースケール（K100%単色・印刷所入稿用）</option>
+              <option value="rgb">RGBカラー</option>
+            </select>
+          </div>
+          <div class="cfg-row">
+            <!-- 動作が保証できないためコメントアウト。使う場合は自己責任で
+            <div class="cfg-field">
+              <label for="cfg-pdf-standard">PDF規格準拠</label>
+              <select id="cfg-pdf-standard">
+                <option value="PDF/X-1a:2001">PDF/X-1a:2001 準拠</option>
+                <option value="PDF/X-4">PDF/X-4 準拠</option>
+              </select>
+            </div>
+            -->
+            <div class="cfg-field">
+              <label for="cfg-pdf-bleed">出力塗り足し幅</label>
+              <select id="cfg-pdf-bleed">
+                <option value="3">3 mm [標準]</option>
+                <option value="5">5 mm</option>
+                <option value="0">0 mm (なし)</option>
+              </select>
+            </div>
+          </div>
+          <label class="check-row">
+            <input type="checkbox" id="cfg-pdf-trim" checked />
+            <span>トンボ（トリムマーク）を付与して出力</span>
+          </label>
+          <div class="export-btn-stack">
+            <!-- 動作が保証できないためコメントアウト。使う場合は自己責任で
+            <button type="button" id="btn-export-pdf" class="btn-primary-export">
+              印刷所対応 統合PDFを書き出す
+            </button>
+            -->
+            <button type="button" id="btn-export-psd-zip" class="btn-primary-export">
+              全ページ連番PSD (ZIP一括) を書き出す
+            </button>
+            <button type="button" id="btn-export-png-zip" class="btn-secondary-export">
+              全ページ連番PNG (ZIP一括) を書き出す
+            </button>
+            <button type="button" id="btn-export-single-png" class="btn-secondary">
+              現在表示中のページのみ単体PNG出力
+            </button>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>テキスト入出力（テキスト / 青空文庫 / MD）</h3>
+          <!-- 動作が保証できないためコメントアウト。使う場合は自己責任で
+          <h3>汎用フォーマット入出力（EPUB3 / Word / 青空文庫 / MD）</h3>
+          <div class="cfg-row">
+            <label for="cfg-epub-layout">EPUB3 出力方式</label>
+            <select id="cfg-epub-layout">
+              <option value="reflow">EPUB3 縦書きリフロー型</option>
+              <option value="fixed">EPUB3 縦書き固定レイアウト型</option>
+            </select>
+          </div>
+          -->
+          <div class="export-btn-stack">
+            <!-- 動作が保証できないためコメントアウト。使う場合は自己責任で
+            <button type="button" id="btn-export-epub" class="btn-secondary">EPUB3 (.epub) 出力</button>
+            <button type="button" id="btn-export-docx" class="btn-secondary">Word (.docx) 出力</button>
+            -->
+            <button type="button" id="btn-export-plain-txt" class="btn-secondary">
+              テキスト (.txt) 出力（プレーンテキスト）
+            </button>
+            <div class="cfg-grid-2">
+              <button type="button" id="btn-export-aozora" class="btn-secondary">青空文庫 (.txt) 出力</button>
+              <button type="button" id="btn-export-md" class="btn-secondary">Markdown (.md) 出力</button>
+            </div>
+          </div>
+          <div class="cfg-row" style="margin-top: 8px;">
+            <!-- 動作が保証できないためコメントアウト。使う場合は自己責任で
+            <label class="btn-secondary file-label full-width">
+              外部ファイルをインポート (.epub / .docx / .txt / .md)
+              <input type="file" id="input-import-universal" accept=".epub,.docx,.txt,.md" hidden />
+            </label>
+            -->
+            <label class="btn-secondary file-label full-width">
+              外部テキストをインポート (.txt / .md)
+              <input type="file" id="input-import-universal" accept=".txt,.md" hidden />
+            </label>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>「設定ファイル」「本文ファイル」の保存・読込 (CSV / JSON)</h3>
+          <div class="cfg-grid-2">
+            <button type="button" id="btn-save-settings-csv" class="btn-secondary">設定CSVを保存</button>
+            <button type="button" id="btn-save-manuscript-csv" class="btn-secondary" title="Ctrl+S">本文CSVを保存</button>
+          </div>
+          <div class="cfg-grid-2" style="margin-top: 6px;">
+            <button type="button" id="btn-save-project-json" class="btn-secondary">プロジェクトJSON保存</button>
+            <label class="btn-secondary file-label" style="text-align:center;">
+              JSON読込
+              <input type="file" id="input-load-project-json" accept=".json" hidden />
+            </label>
+          </div>
+          <div style="margin-top: 10px;">
+            <button type="button" id="btn-reset-sample" class="btn-ghost full-width">
+              初期サンプル原稿・デフォルト設定に戻す
+            </button>
+            <button type="button" id="btn-new-blank-document" class="btn-ghost full-width" style="margin-top: 6px;">
+              新規作成（白紙にする）
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 2: サイズ設定・段組み・レイアウト・余白設定 -->
+      <section id="tab-layout" class="sidebar-tab-panel">
+        <div class="cfg-card">
+          <h3>サイズ・解像度・塗り足し設定</h3>
+          <div class="cfg-row">
+            <label for="cfg-paper-preset">判型プリセット</label>
+            <select id="cfg-paper-preset">
+              <option value="A6">A6（文庫・105×148mm）[標準]</option>
+              <option value="SHINSHO">新書判（103×182mm）</option>
+              <option value="B6">B6判（128×182mm）</option>
+              <option value="A5">A5判（148×210mm）</option>
+              <option value="CUSTOM">カスタムサイズ</option>
+            </select>
+          </div>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-paper-width">仕上がり幅 (mm)</label>
+              <input type="number" id="cfg-paper-width" step="1" min="40" max="400" value="105" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-paper-height">仕上がり高 (mm)</label>
+              <input type="number" id="cfg-paper-height" step="1" min="50" max="500" value="148" />
+            </div>
+          </div>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-paper-dpi">解像度 (dpi)</label>
+              <select id="cfg-paper-dpi">
+                <option value="600">600 dpi [標準]</option>
+                <option value="350">350 dpi</option>
+                <option value="300">300 dpi</option>
+                <option value="1200">1200 dpi (高精細)</option>
+              </select>
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-paper-bleed">塗り足し (mm)</label>
+              <select id="cfg-paper-bleed">
+                <option value="3">3 mm [標準]</option>
+                <option value="5">5 mm</option>
+                <option value="0">0 mm (なし)</option>
+              </select>
+            </div>
+          </div>
+          <div class="cfg-checks">
+            <label class="check-row">
+              <input type="checkbox" id="cfg-show-guides" checked />
+              <span>プレビューに版面・ノド側ガイドを表示</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="cfg-show-trim-preview" />
+              <span>プレビューにもトンボ・塗り足し枠を表示</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>段組み・文字レイアウト設定</h3>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-columns">段組み設定</label>
+              <select id="cfg-columns">
+                <option value="1">1段組み [標準]</option>
+                <option value="2">2段組み</option>
+              </select>
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-column-gap">段間 (mm)</label>
+              <input type="number" id="cfg-column-gap" step="0.5" min="1" max="20" value="5" />
+            </div>
+          </div>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-chars-per-line">1行文字数</label>
+              <input type="number" id="cfg-chars-per-line" min="5" max="100" value="41" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-lines-per-page">1段あたり行数</label>
+              <input type="number" id="cfg-lines-per-page" min="2" max="50" value="18" />
+            </div>
+          </div>
+          <div class="cfg-checks">
+            <label class="check-row">
+              <input type="checkbox" id="cfg-auto-line-spacing" checked />
+              <span>行間調整を自動にする（版面幅に均等配置）</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="cfg-auto-fit-char" checked />
+              <span>指定文字数（41字）を行長に自動フィット</span>
+            </label>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-manual-line-gap">手動時の行間 (mm)</label>
+            <input type="number" id="cfg-manual-line-gap" step="0.1" min="0" max="15" value="1.5" />
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>余白設定（文字レイアウトを行わないエリア）</h3>
+          <p class="cfg-hint">※ノド側は製本状態に合わせ偶数頁で左、奇数頁で右になります。</p>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-margin-gutter-cm">ノド側 (cm)</label>
+              <input type="number" id="cfg-margin-gutter-cm" step="0.1" min="0.3" max="5" value="1.50" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-margin-outer-cm">小口側 (cm)</label>
+              <input type="number" id="cfg-margin-outer-cm" step="0.1" min="0.3" max="5" value="1.00" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-margin-top-cm">天あき (cm)</label>
+              <input type="number" id="cfg-margin-top-cm" step="0.1" min="0.3" max="5" value="1.60" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-margin-bottom-cm">地あき (cm)</label>
+              <input type="number" id="cfg-margin-bottom-cm" step="0.1" min="0.3" max="5" value="1.20" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 2: 文字設定（本文・扉・目次・ノンブル別のフォント＆文字サイズ設定） -->
+      <section id="tab-font" class="sidebar-tab-panel">
+        <div class="cfg-card">
+          <h3>「本文」フォント・文字サイズ設定</h3>
+          <p class="cfg-hint">デフォルトは「游明朝 (Yu Mincho) の 8.5 pt」です。</p>
+          <div class="cfg-row">
+            <label for="cfg-body-font">本文フォント</label>
+            <select id="cfg-body-font"></select>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-body-size">本文文字サイズ (pt)</label>
+            <input type="number" id="cfg-body-size" step="0.5" min="5" max="24" value="8.5" />
+          </div>
+          <div class="cfg-row">
+            <label class="btn-secondary file-label full-width" id="lbl-custom-font-upload">
+              <span id="custom-font-upload-btn-text">任意のフォント (.ttf / .otf) を追加読み込む（複数可）</span>
+              <input type="file" id="input-custom-font" accept=".ttf,.otf,.woff,.woff2" multiple hidden />
+            </label>
+          </div>
+          <div id="custom-fonts-loaded-list" class="custom-fonts-loaded-list" style="display: none;"></div>
+          <label class="check-row" style="margin-top: 8px;">
+            <input type="checkbox" id="cfg-enable-page-font-override" />
+            <span>ページ毎にフォントを設定する</span>
+          </label>
+        </div>
+
+        <div class="cfg-card">
+          <h3>「ノンブル」「ノンブル右横コメント」フォント設定</h3>
+          <div class="cfg-row">
+            <label for="cfg-nombre-font">ノンブルのフォント</label>
+            <select id="cfg-nombre-font"></select>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-nombre-comment-font">ノンブル右横コメントのフォント</label>
+            <select id="cfg-nombre-comment-font"></select>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>「扉」フォント・デザイン設定（自由設定）</h3>
+          <div class="cfg-row">
+            <label for="cfg-tobira-font">扉フォント</label>
+            <select id="cfg-tobira-font"></select>
+          </div>
+          <div class="cfg-grid-3">
+            <div class="cfg-field">
+              <label for="cfg-tobira-title-size">表題 (pt)</label>
+              <input type="number" id="cfg-tobira-title-size" step="0.5" value="18.0" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-tobira-sub-size">副題 (pt)</label>
+              <input type="number" id="cfg-tobira-sub-size" step="0.5" value="10.5" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-tobira-author-size">著者 (pt)</label>
+              <input type="number" id="cfg-tobira-author-size" step="0.5" value="10.0" />
+            </div>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-tobira-style">扉レイアウト配置</label>
+            <select id="cfg-tobira-style">
+              <option value="classic-center">中央古典組（標準）</option>
+              <option value="framed-double">二重飾り罫線組</option>
+              <option value="right-top">右上表題・左下著者組</option>
+            </select>
+          </div>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-tobira-top-offset">表題の天下がり量 (mm)</label>
+              <input type="number" id="cfg-tobira-top-offset" step="0.5" min="-20" max="100" value="18" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-tobira-x-offset">表題の左右微調整 (mm)</label>
+              <input type="number" id="cfg-tobira-x-offset" step="0.5" min="-50" max="50" value="0" />
+            </div>
+          </div>
+          <label class="check-row">
+            <input type="checkbox" id="cfg-tobira-border" checked />
+            <span>扉ページに外周飾り枠を描画する</span>
+          </label>
+        </div>
+
+        <div class="cfg-card">
+          <h3>「目次」フォント・デザイン設定（自由設定）</h3>
+          <div class="cfg-row">
+            <label for="cfg-toc-font">目次フォント</label>
+            <select id="cfg-toc-font"></select>
+          </div>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-toc-heading-size">見出し (pt)</label>
+              <input type="number" id="cfg-toc-heading-size" step="0.5" value="13.0" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-toc-item-size">項目文字 (pt)</label>
+              <input type="number" id="cfg-toc-item-size" step="0.5" value="9.0" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-toc-pitch">項目間の行送り (mm)</label>
+              <input type="number" id="cfg-toc-pitch" step="0.5" value="7.5" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-toc-indent">天字下げ (文字数)</label>
+              <input type="number" id="cfg-toc-indent" step="1" min="0" max="10" value="2" />
+            </div>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-toc-num-style">目次ページ番号の表記</label>
+            <select id="cfg-toc-num-style">
+              <option value="kanji">漢数字（三、十二...）</option>
+              <option value="arabic-tcy">半角数字（縦中横）</option>
+            </select>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-toc-align">目次レイアウト配置</label>
+            <select id="cfg-toc-align">
+              <option value="right">右揃え（標準）</option>
+              <option value="center">中央揃え（見出しを含めない）</option>
+              <option value="center-all">中央揃え（見出しを含める）</option>
+            </select>
+          </div>
+          <label class="check-row">
+            <input type="checkbox" id="cfg-toc-leader" checked />
+            <span>項目と頁番号の間を三点リーダー（……）で結ぶ</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Tab 3: 組版設定（ヘッダー・フッター設定 ＆ 禁則・縦中横・約物処理） -->
+      <section id="tab-rules" class="sidebar-tab-panel">
+        <div class="cfg-card">
+          <h3>ヘッダー・フッター設定（天・地あき例外配置）</h3>
+          <p class="cfg-hint">
+            ノンブルは偶数頁で右、奇数頁で左に自動配置。奇数頁はノンブルの0.5cm右横に小説タイトル（扉設定参照）が入ります。
+          </p>
+          <div class="cfg-checks">
+            <label class="check-row">
+              <input type="checkbox" id="cfg-use-header" checked />
+              <span>ヘッダーを使用する（天あき内に配置）[標準]</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="cfg-use-footer" />
+              <span>フッターを使用する（地あき内に配置）</span>
+            </label>
+          </div>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-hf-placement">ノンブル表示位置</label>
+              <select id="cfg-hf-placement">
+                <option value="header">ヘッダー側 [標準]</option>
+                <option value="footer">フッター側</option>
+              </select>
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-hf-font-size">文字サイズ (pt)</label>
+              <input type="number" id="cfg-hf-font-size" step="0.5" value="7.0" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-hf-start-num">開始ページ番号</label>
+              <input type="number" id="cfg-hf-start-num" step="1" value="1" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-hf-odd-gap-cm">奇数頁コメント間隔 (cm)</label>
+              <input type="number" id="cfg-hf-odd-gap-cm" step="0.1" value="0.50" />
+            </div>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-hf-odd-source">奇数頁コメント内容（ノンブル右横）</label>
+            <select id="cfg-hf-odd-source">
+              <option value="tobira-title">扉ページの小説タイトルを自動参照 [標準]</option>
+              <option value="custom">任意のテキストを指定</option>
+            </select>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-hf-odd-custom">任意指定時のコメント文字列</label>
+            <input type="text" id="cfg-hf-odd-custom" placeholder="扉タイトル自動参照時は空欄でOK" />
+          </div>
+          <div class="cfg-checks">
+            <label class="check-row">
+              <input type="checkbox" id="cfg-hf-hide-tobira" checked />
+              <span>「扉」ページではコメント文字列を非表示</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="cfg-hf-hide-toc" />
+              <span>「目次」ページではコメント文字列を非表示</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>禁則処理と行末調整</h3>
+          <label class="check-row">
+            <input type="checkbox" id="cfg-enable-kinsoku" checked />
+            <span>行頭禁則（、。」』等）・行末禁則（「『（等）を有効化</span>
+          </label>
+          <div class="cfg-row">
+            <label for="cfg-line-end-mode">行末調整の方式</label>
+            <select id="cfg-line-end-mode">
+              <option value="burasage">ぶら下げ組（句読点を行末枠外にぶら下げ）[標準]</option>
+              <option value="oidashi">追い出し（次行へ送り字間を微拡大して調整）</option>
+              <option value="oikomi">追い込み（字間を微縮小して現在行に収める）</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>縦中横（たてちゅうよこ）と英数字・欧文処理</h3>
+          <div class="cfg-row">
+            <label for="cfg-auto-tcy-digits">半角数字の自動縦中横</label>
+            <select id="cfg-auto-tcy-digits">
+              <option value="2">2桁までの半角数字を1マス横並び</option>
+              <option value="3">2〜3桁の半角数字を1マス横並び</option>
+              <option value="0">自動縦中横オフ（手動タグのみ）</option>
+            </select>
+          </div>
+          <label class="check-row">
+            <input type="checkbox" id="cfg-auto-tcy-excl" checked />
+            <span>感嘆符・疑問符（!?、!!、?!、??）を1マス縦中横に配置</span>
+          </label>
+          <div class="cfg-row">
+            <label for="cfg-latin-mode">英単語・横書き欧文・4桁以上数字の制御</label>
+            <select id="cfg-latin-mode">
+              <option value="rotate">横組み90度回転（プロポーショナル自然字送り）[標準]</option>
+              <option value="smart">スマート自動（2〜3字の英大文字略語は正立・英文は90度回転）</option>
+              <option value="rotate-mono">横組み90度回転（等幅ピッチ配置）</option>
+              <option value="upright">一文字ずつ縦に並べる（全角化・正立）</option>
+            </select>
+          </div>
+          <label class="check-row">
+            <input type="checkbox" id="cfg-latin-word-wrap" checked />
+            <span>英単語が行末で途切れないよう単語単位で次行へ送る（ワードラップ）</span>
+          </label>
+          <div class="cfg-row">
+            <label for="cfg-latin-waou-spacing">和欧間の自動アキ（和文と横組み欧文の境界）</label>
+            <select id="cfg-latin-waou-spacing">
+              <option value="sixth">六分アキ（自然な余白）[標準]</option>
+              <option value="quarter">四分アキ（やや広め）</option>
+              <option value="none">ベタ組み（アキなし）</option>
+            </select>
+          </div>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-latin-font-scale">欧文サイズ比率 (%)</label>
+              <input type="number" id="cfg-latin-font-scale" step="1" min="75" max="115" value="95" title="和文に対する欧文の文字サイズ比率（標準: 95%）" />
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-latin-baseline-offset">欧文左右中心微調整</label>
+              <input type="number" id="cfg-latin-baseline-offset" step="0.02" min="-0.30" max="0.30" value="0.00" title="縦書き行の中心軸に対する欧文ベースラインの左右位置微調整（標準: 0.00）" />
+            </div>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>約物の連続・アキ調整・改丁制御</h3>
+          <label class="check-row">
+            <input type="checkbox" id="cfg-connect-dash" checked />
+            <span>2倍ダッシュ（――）・三点リーダー（……）を隙間なく連結描画</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="cfg-auto-excl-space" checked />
+            <span>感嘆符（！）や疑問符（？）直後の全角一マス空けを自動補完</span>
+          </label>
+          <div class="cfg-grid-2">
+            <div class="cfg-field">
+              <label for="cfg-bracket-spacing">カギ括弧前後のアキ</label>
+              <select id="cfg-bracket-spacing">
+                <option value="beta">ベタ組み</option>
+                <option value="nibun">二分アキ</option>
+              </select>
+            </div>
+            <div class="cfg-field">
+              <label for="cfg-punct-spacing">句読点後のアキ</label>
+              <select id="cfg-punct-spacing">
+                <option value="beta">ベタ組み</option>
+                <option value="nibun">二分アキ</option>
+              </select>
+            </div>
+          </div>
+          <div class="cfg-row">
+            <label for="cfg-kaicho-target">「改丁」時の次ページ開始位置</label>
+            <select id="cfg-kaicho-target">
+              <option value="odd">必ず次の奇数ページ（左頁）から開始</option>
+              <option value="even">必ず次の偶数ページ（右頁）から開始</option>
+            </select>
+          </div>
+          <label class="check-row" style="margin-top: 4px;">
+            <input type="checkbox" id="cfg-check-indent-warning" checked />
+            <span>文頭の空白1文字（字下げ）忘れを検知して注意喚起（プレビューにも表示）</span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Tab 5: UI設定（UI色調・ゲージ色調・ショートカットキー・設定CSV保存/読込） -->
+      <section id="tab-theme" class="sidebar-tab-panel">
+        <div class="cfg-card highlight-card">
+          <h3>🎨 UI色調設定（テーマ・配色カスタマイズ）</h3>
+          <div class="cfg-row">
+            <label for="cfg-ui-theme-preset">UI色調プリセット</label>
+            <select id="cfg-ui-theme-preset">
+              <option value="dark-sumi">墨色ダーク（標準）</option>
+              <option value="light-washi">生成り和紙（ライト）</option>
+              <option value="sepia-amber">琥珀セピア（暖色）</option>
+              <option value="midnight-indigo">群青ミッドナイト（濃紺）</option>
+              <option value="matcha-green">深緑モダン（抹茶）</option>
+              <option value="custom">カスタム色調</option>
+            </select>
+          </div>
+
+          <div class="theme-sidebar-pickers">
+            <label class="color-picker-item">
+              <span>全体背景</span>
+              <input type="color" id="cfg-ui-bg-app" value="#191b20" />
+            </label>
+            <label class="color-picker-item">
+              <span>パネル背景</span>
+              <input type="color" id="cfg-ui-bg-panel" value="#22252c" />
+            </label>
+            <label class="color-picker-item">
+              <span>執筆欄背景</span>
+              <input type="color" id="cfg-ui-bg-editor" value="#16181d" />
+            </label>
+            <label class="color-picker-item">
+              <span>文字色</span>
+              <input type="color" id="cfg-ui-text-main" value="#ece9e2" />
+            </label>
+            <label class="color-picker-item">
+              <span>強調色</span>
+              <input type="color" id="cfg-ui-accent" value="#d4a857" />
+            </label>
+          </div>
+
+          <div style="margin-top: 4px;">
+            <button type="button" id="btn-reset-ui-theme" class="btn-secondary full-width">
+              標準色（墨色ダーク）に戻す
+            </button>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>📊 上部情報バー（「日時・締切」「全ページ合計」）表示設定</h3>
+          <p class="cfg-hint">画面上部の「日時・締切」および「全ページ合計」の各表示／非表示を設定します。</p>
+          <div class="cfg-checks">
+            <label class="check-row">
+              <input type="checkbox" id="cfg-show-header-time-bar" checked />
+              <span>「日時・締切」を表示する</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="cfg-show-header-total-bar" checked />
+              <span>「全ページ合計」を表示する</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="cfg-show-total-raw-nospace" checked />
+              <span>「純粋文字数」「空白・改行除外」を表示する</span>
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="cfg-show-total-sheets" />
+              <span>「400字詰換算」を表示する</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>⏱️ 進捗・締切ゲージの色調設定</h3>
+          <p class="cfg-hint">上部バーの「今日・今月」ゲージおよび「締切まで」残り時間ゲージの配色を設定します。</p>
+          <div class="theme-sidebar-pickers">
+            <label class="color-picker-item">
+              <span>今日・今月</span>
+              <input type="color" id="cfg-gauge-elapsed" value="#5b9bd5" />
+            </label>
+            <label class="color-picker-item">
+              <span>締切(通常)</span>
+              <input type="color" id="cfg-gauge-safe" value="#4caf50" />
+            </label>
+            <label class="color-picker-item">
+              <span>締切(50%未満)</span>
+              <input type="color" id="cfg-gauge-warn" value="#f5a623" />
+            </label>
+            <label class="color-picker-item">
+              <span>締切(20%未満)</span>
+              <input type="color" id="cfg-gauge-danger" value="#e5484d" />
+            </label>
+          </div>
+          <div style="margin-top: 4px;">
+            <button type="button" id="btn-reset-gauge-colors" class="btn-secondary full-width">
+              ゲージ色を標準に戻す
+            </button>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>⌨️ ショートカットキーの設定</h3>
+          <p class="cfg-hint">
+            入力欄をクリックして設定したいキー（例: Ctrl+S, Alt+R）を押してください。Backspace / Delete または「×」で空白にできます。
+          </p>
+          <div class="shortcut-config-list">
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">本文CSV保存</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="saveManuscriptCsv" readonly placeholder="未設定" value="Ctrl+S" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="saveManuscriptCsv" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">設定CSV保存</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="saveSettingsCsv" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="saveSettingsCsv" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">プロジェクトJSON保存</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="saveProjectJson" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="saveProjectJson" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">テキスト(.txt)出力</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="exportPlainTxt" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="exportPlainTxt" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">全頁PSD(ZIP)出力</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="exportPsdZip" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="exportPsdZip" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">全頁PNG(ZIP)出力</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="exportPngZip" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="exportPngZip" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">ルビ挿入</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="insertRuby" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="insertRuby" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">縦中横挿入</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="insertTcy" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="insertTcy" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">2倍ダッシュ挿入</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="insertDash" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="insertDash" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">三点リーダー挿入</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="insertEllipsis" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="insertEllipsis" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">[改ページ]挿入</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="insertPageBreak" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="insertPageBreak" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">[改丁]挿入</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="insertKaicho" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="insertKaicho" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">新規連動区間を追加</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="addNewFlowSection" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="addNewFlowSection" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">プレビュー次頁送り(◀)</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="previewForward" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="previewForward" title="空白に戻す">×</button>
+              </div>
+            </div>
+            <div class="shortcut-config-row">
+              <span class="shortcut-action-label">プレビュー前頁戻し(▶)</span>
+              <div class="shortcut-input-wrap">
+                <input type="text" class="shortcut-key-input" data-shortcut-action="previewBackward" readonly placeholder="未設定" value="" />
+                <button type="button" class="btn-clear-shortcut" data-clear-shortcut="previewBackward" title="空白に戻す">×</button>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top: 6px;">
+            <button type="button" id="btn-reset-shortcuts" class="btn-secondary full-width">
+              ショートカットを初期状態に戻す
+            </button>
+          </div>
+        </div>
+
+        <div class="cfg-card">
+          <h3>環境・組版設定のCSV保存・読込</h3>
+          <p class="cfg-hint">現在のサイズ・文字・組版・UI設定などをCSVファイルとして保存・復元できます。</p>
+          <div class="cfg-grid-2">
+            <button
+              type="button"
+              id="btn-top-save-settings-csv"
+              class="btn-secondary"
+              title="環境・組版設定をCSVファイルとして保存"
+            >
+              設定CSV保存
+            </button>
+            <label class="btn-secondary file-label" title="設定CSVファイルを読み込む" style="text-align: center;">
+              設定CSV読込
+              <input type="file" id="input-load-settings-csv" accept=".csv" hidden />
+            </label>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- 下部ドック：ページ一覧・ドラッグ＆ドロップ入れ替え・ページ挿入/削除・選択ページ文字数算出（通常時は折り畳み） -->
+  <footer id="page-manager-dock" class="page-manager-dock dock-collapsed">
+    <div class="dock-toolbar">
+      <div class="dock-left-controls">
+        <button type="button" id="btn-toggle-bottom-dock" class="btn-dock toggle-dock-btn" title="ページ管理サムネイル一覧を開閉">
+          <span id="dock-toggle-arrow">▲</span> ページ管理を開く
+        </button>
+        <span class="dock-sep">|</span>
+        <button type="button" id="btn-add-body-page" class="btn-dock">+ 本文頁を追加</button>
+        <button type="button" id="btn-add-tobira-page" class="btn-dock">+ 扉頁を追加</button>
+        <button type="button" id="btn-add-toc-page" class="btn-dock">+ 目次頁を追加</button>
+        <button type="button" id="btn-add-blank-page" class="btn-dock" title="挿絵を追加するため等に空けておくページ、本文が入りません">+ 空白頁を追加</button>
+        <span class="dock-sep">|</span>
+        <button type="button" id="btn-move-page-left" class="btn-dock" title="現在のページを前へ移動">← 前へ入替</button>
+        <button type="button" id="btn-move-page-right" class="btn-dock" title="現在のページを次へ移動">次へ入替 →</button>
+        <button type="button" id="btn-dup-page" class="btn-dock">複製</button>
+        <button type="button" id="btn-del-page" class="btn-dock danger">削除</button>
+      </div>
+
+      <div class="dock-right-controls">
+        <div class="counter-group selected-group dock-selected-group">
+          <span class="counter-group-title">選択ページ計 (<span id="cnt-sel-pages">0 / 0 頁</span>)</span>
+          <div class="counter-metric">
+            <span class="metric-label">純粋</span>
+            <strong id="cnt-sel-raw">0</strong>
+          </div>
+          <div class="counter-metric">
+            <span class="metric-label">空白除外</span>
+            <strong id="cnt-sel-nospace">0</strong>
+          </div>
+          <div class="counter-metric highlight-alt">
+            <span class="metric-label">実文字数</span>
+            <strong id="cnt-sel-effective">0</strong>
+          </div>
+        </div>
+        <span class="dock-caption">カウンター対象ページ選択:</span>
+        <button type="button" id="btn-select-all-pages" class="btn-dock">全ページ選択</button>
+        <button type="button" id="btn-select-current-only" class="btn-dock">現在の頁のみ選択</button>
+        <button type="button" id="btn-clear-selected-pages" class="btn-dock">選択解除</button>
+      </div>
+    </div>
+
+    <div id="page-thumbnail-strip" class="page-thumbnail-strip"></div>
+  </footer>
+
+  <!-- 高解像度出力プログレスモーダル -->
+  <div id="export-progress-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <h3>組版データを書き出し中...</h3>
+      <p id="export-progress-text">準備しています...</p>
+      <div class="progress-track">
+        <div id="export-progress-bar" class="progress-fill" style="width: 0%;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 「締切日時の設定」モーダルウィンドウ（別窓） -->
+  <div id="deadline-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card deadline-modal-card" role="dialog" aria-modal="true" aria-labelledby="deadline-modal-title">
+      <h3 id="deadline-modal-title">⏱️ 締切日時の設定</h3>
+      <p id="deadline-modal-current-status" class="deadline-modal-status">現在：締切未設定</p>
+      <div class="deadline-form-grid">
+        <div class="cfg-field">
+          <label for="deadline-date-input">締切年月日</label>
+          <input type="date" id="deadline-date-input" />
+        </div>
+        <div class="cfg-field">
+          <label for="deadline-time-input">締切時刻</label>
+          <input type="time" id="deadline-time-input" value="23:59" />
+        </div>
+      </div>
+      <p class="cfg-hint" style="margin-top: 8px;">
+        ※設定した時点を100%として締切日時（0%）に向かって残り時間の割合を表示します。締切日時を過ぎると自動的に「締切未設定」に戻ります。
+      </p>
+      <div class="deadline-modal-actions">
+        <button type="button" id="btn-save-deadline" class="btn-primary-export">締切を設定する</button>
+        <button type="button" id="btn-reset-deadline" class="btn-dock danger deadline-reset-btn">締切リセット</button>
+        <button type="button" id="btn-close-deadline-modal" class="btn-secondary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 「このツールについて」モーダルウィンドウ -->
+  <div id="about-tool-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card about-modal-card" role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
+      <div class="about-modal-seal">縦</div>
+      <h3 id="about-modal-title" class="about-modal-software-name">縦書き同人小説書けるくん</h3>
+      <p id="about-modal-version" class="about-modal-version">Ver.1.00</p>
+      <p id="about-modal-updated" class="about-modal-updated">最終更新：2026年11月4日</p>
+      <p class="about-modal-copyright">(c)しーさいど (MIT License)</p>
+      <div class="about-modal-actions">
+        <button type="button" id="btn-close-about-modal" class="btn-secondary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 「ヘルプ」モーダルウィンドウ（別窓） -->
+  <div id="help-tool-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card help-modal-card" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+      <div class="help-card-header">
+        <h3 id="help-modal-title">📖 ヘルプ ／ 機能・使い方ガイド</h3>
+        <div class="help-modal-top-actions">
+          <button type="button" id="btn-copy-help-text" class="btn-chip" title="ヘルプ全文をクリップボードにコピーします">
+            テキストをコピー
+          </button>
+          <button type="button" id="btn-close-help-modal" class="btn-secondary">閉じる</button>
+        </div>
+      </div>
+      <pre id="help-readme-text" class="help-readme-box">======================================================================
+縦書き同人小説書けるくん (Ver.1.00) - ヘルプ / 機能ガイド
+======================================================================
+
+【0. はじめに】
+このテキストエディタは、作者（しーさいど）が既存のテキストエディタの仕様に納得行っていなかったので自分で作ったものです。テキストエディタ作成にあたってはＡＩを全面活用しています（Google Gemini4Argon）。「本文を書き出す」事のみを想定しており、同人誌として仕上げる場合、表紙や挿絵は別のソフトを使う想定です。そのため、オールインワンではないのは仕様となっています。
+
+----------------------------------------------------------------------
+【1. 概要・データ保持・プライバシー仕様について】
+----------------------------------------------------------------------
+■ 概要
+「縦書き同人小説書けるくん」は、ブラウザ上で縦書きの右綴じ見開きプレビューをリアルタイムに確認しながら小説を執筆し、印刷所入稿・DTP編集向けの連番PSD / 連番PNGやテキストファイルを出力できる小説執筆エディタです。
+
+■ データの保持と「セーブ」の推奨について（重要）
+執筆中の原稿や設定内容は、お使いのブラウザ内のストレージ（LocalStorage／ブラウザキャッシュ領域）に自動的に保持される仕組みになっており、ページを再読み込みしても続きから作業できます。
+ただし、ブラウザ内のキャッシュ領域で保持しているため、ブラウザの「キャッシュ・閲覧データ削除（サイトデータの消去）」を行ったり、シークレット（プライベート）ウィンドウを閉じたりすると、保持されていたデータが消えてしまう恐れがあります。
+大切な原稿の消失を防ぐため、画面右上の「セーブ」ボタン（ショートカット: Ctrl+S）から、こまめにCSVファイルとしてPC等のローカル環境へ保存しておくことを推奨します。
+
+■ AI非学習・外部へのデータ非送信について
+本ツールは、文字入力・組版計算・プレビュー描画・ファイル入出力を含むすべての処理を、お使いのブラウザ内（ローカル環境）のみで完結させる仕様です。
+執筆した小説本文や設定データが外部のサーバーへ送信されることは一切なく、AIの学習データとして利用・収集されることもありません。安心して執筆にご利用いただけます。
+
+----------------------------------------------------------------------
+【2. 画面構成と基本操作】
+----------------------------------------------------------------------
+■ 上部ヘッダー
+・日付・経過ゲージ・締切ゲージ：
+  現在の日付、今日/今月の経過率(%)、および設定した締切日時までの残り時間(%)をゲージ表示します。「締切未設定（または締切ゲージ）」をクリックすると締切日時を設定できます。
+・全ページ合計カウンター：
+  「純粋文字数」「空白・改行除外」「実文字数（ルビ・制御記法除外）」「400字詰原稿用紙換算枚数」をリアルタイム集計します（「UI設定」タブから各表示のON/OFF切替が可能）。
+・セーブ / ロード：
+  右上の「セーブ」（初期ショートカット: Ctrl+S）で全ページの原稿データをCSVファイルとして保存、「ロード」で保存した本文CSVファイルを読み込みます。
+
+■ 左ペイン：執筆エディタ
+・エディタとプレビューの境界バー（中央の縦線）はドラッグして任意の幅に調整できます（ダブルクリックで標準幅にリセット）。
+・ページ属性表示：
+  現在表示中ページの属性（「本文」「扉」「目次」「空白」）を表示します。
+・本文連動区間：
+  連続する「本文」ページ（間に「空白」ページを含む場合も連動維持）は1つの連動区間として繋がっており、文字の入力・削除に応じて自動でページが増減・折り返しされます。
+  章ごとに独立させたい場合は「✂カーソル位置で連動を区切る」「＋新規連動区間を追加」等で区間を分けられます。
+・執筆補助ツールバー：
+  「元に戻す(Ctrl+Z)」「ルビ挿入」「縦中横」「ダッシュ(――)」「三点リーダー(……)」「[改ページ]」「[改丁]」のワンクリック挿入、および本文内キーワード連続検索（一致箇所のハイライト＆該当頁ジャンプ）が可能です。
+・エディタ下部チェック機能：
+  -「割付ページ別の背景色表示」：ONにすると、テキストエリア内でどこからどこまでが何ページ目（P.1, P.2...）に入るかを背景色とバッジで視覚化します（デフォルトOFF）。
+  -「文頭1字下げチェック」：段落先頭の全角空白（　）忘れを自動検知し、該当行へのジャンプやワンクリック補完ができます。
+
+■ 中央ペイン：プレビュー表示
+・見開きプレビュー（常時「右綴じ見開き」：左＝奇数頁、右＝偶数頁）
+・単ページ表示
+・9ページグリッド俯瞰（ドラッグ＆ドロップでページ順序の入れ替えが可能）
+・◀ / ▶ ボタン（またはプレビュー操作時のキーボード ← / → キー）でページ送りが可能です。
+
+■ 下部ドック：ページ管理（クリックで開閉）
+・ページの追加（＋本文頁 / ＋扉頁 / ＋目次頁 / ＋空白頁）、前後の順序入替、複製、削除が行えます。
+・カウンター対象ページ選択：
+  サムネイル左上のチェックボックス（または「全ページ選択」「現在の頁のみ選択」「選択解除」）で選択したページだけの文字数合計を「選択ページ計」に算出できます（初期状態は未選択）。
+
+----------------------------------------------------------------------
+【3. 4つのページ属性について】
+----------------------------------------------------------------------
+1.「本文」：小説本文を流し込む標準ページです。
+2.「扉」　：小説タイトル（表題）・副題・著者名・備考を配置するページです。
+  - 表題の上下位置（天からの距離 mm）・左右位置（横微調整 mm）を数値で微調整できます。
+  - ここに入力した「小説タイトル」は、奇数ページのヘッダー（ノンブルの右横コメント）に自動反映されます。
+3.「目次」：章タイトルとページ番号を並べる目次ページです。
+  -「扉から見出しを自動抽出」または手動で項目を追加・編集できます。
+  - 目次見出し（目　次）は空欄にすると非表示にできます。
+  - レイアウトは「右揃え（標準）」「中央揃え（見出しを含めない）」「中央揃え（見出しを含める）」から選択可能です。
+4.「空白」：挿絵等をあとから別ソフトで入れるために空けておくページです。
+  - 本文は入りませんがノンブル等は描画されます。
+  - 本文連動区間の途中に「空白」ページを挟んでも連動は切れず、空白ページを飛ばして前後の本文ページへ自動で本文が流し込まれます。
+
+----------------------------------------------------------------------
+【4. 本文内で使える組版記法】
+----------------------------------------------------------------------
+・ルビ　　： ｜漢字《かんじ》 または |漢字《かんじ》
+・縦中横　： [縦中横:12] （※2〜3桁の半角数字や !? 等は自動縦中横設定も可）
+・改ページ： [改ページ] （次のページへ送る）
+・改丁　　： [改丁] （次の奇数頁または偶数頁へ送る）
+
+----------------------------------------------------------------------
+【5. 環境・組版・入稿設定（右サイドバー各タブ）】
+----------------------------------------------------------------------
+■「ファイル」タブ（入力・出力）
+・印刷・入稿用画像出力：
+  -「全ページ連番PSD (ZIP一括)」：PhotoshopやCLIP STUDIO等でそのまま開ける連番PSDを出力。
+  -「全ページ連番PNG (ZIP一括)」／「現在表示中のページのみ単体PNG出力」
+  - カラーモード（印刷所入稿用 K100%グレースケール / RGB）、塗り足し幅（0 / 3 / 5mm）、トンボ付与を選択可能。
+・テキスト入出力：
+  - プレーンテキスト(.txt) / 青空文庫形式(.txt) / Markdown(.md) の書き出し・インポート。
+・保存・読込・初期化：
+  - 本文CSV保存・設定CSV保存・プロジェクト一括JSON保存/読込。
+  -「初期サンプル原稿・デフォルト設定に戻す」「新規作成（白紙にする）」（確認ダイアログ付き）。
+
+■「サイズ」タブ
+・判型プリセット：A6（文庫・標準）、新書判、B6判、A5判、カスタムサイズ。
+・解像度（600dpi標準 / 350dpi / 300dpi / 1200dpi）、塗り足し幅、版面・トンボガイド表示切替。
+・段組み（1段 / 2段）、1行文字数（標準41字）、1段行数（標準18行）、行間・字送り自動調整。
+・余白設定：ノド側（標準1.5cm）・小口側（標準1.0cm）・天あき（標準1.6cm）・地あき（標準1.2cm）。
+
+■「文字」タブ
+・起動時にPC内のインストール済み主要システムフォントを自動検出し、全環境共通のWebフォント数種と合わせてプルダウンに表示します（デフォルト：游明朝 8.5pt）。
+・任意のフォントファイル（.ttf / .otf / .woff / .woff2）を複数追加読み込むことができ、追加後はそのフォント名で選択可能です。
+・「本文」「扉」「目次」「ノンブル」「ノンブル右横コメント」それぞれのフォントを個別に設定できます。
+・「ページ毎にフォントを設定する」チェックをONにすると、エディタ上部にページ単位の個別フォント・サイズ変更欄が表示されます（デフォルトOFF）。
+
+■「組版」タブ
+・ヘッダー・フッター設定：
+  - ノンブル表示位置（ヘッダー側 / フッター側）、開始ページ番号、フォントサイズ、奇数頁ノンブル右横コメントの間隔・参照元を設定可能。
+  -「扉ページではコメント文字列を非表示」「目次ページではコメント文字列を非表示」により、ノンブルを残したままタイトルコメントのみを非表示にできます。
+・禁則処理と行末調整（ぶら下げ組 / 追い出し / 追い込み）。
+・縦中横（2〜3桁数字、!?等の自動縦中横）と欧文処理（プロポーショナル90度回転 / 略語スマート判定 / 1文字縦並び、ワードラップ、和欧間アキ量）。
+・約物処理（2倍ダッシュ・三点リーダーの連結描画、括弧や句読点のアキ量、！？直後の全角空白自動補完）および改丁基準頁（奇数頁 / 偶数頁）。
+
+■「UI設定」タブ
+・カラーテーマ切替（墨色ダーク / 生成り和紙 / 琥珀セピア / 群青ミッドナイト / 深緑モダン / カスタム配色）。
+・上部情報バー（「日時・締切」「全ページ合計」「純粋文字数・空白改行除外」「400字詰換算」）の表示／非表示切替。
+・上部バーの経過率・締切ゲージの色設定。
+・ショートカットキーの設定（主だった操作に任意のキーを割り当て可能。初期状態は本文CSV保存＝Ctrl+Sのみ設定）。
+・環境・組版設定のCSV保存・読込。
+
+----------------------------------------------------------------------
+【6. ライセンス・著作権】
+----------------------------------------------------------------------
+・ライセンス：MIT License
+・作者　　　：(c) しーさいど</pre>
+    </div>
+  </div>
+
+  <!-- 確認用モーダルウィンドウ（別窓：初期サンプル原稿に戻す／新規作成） -->
+  <div id="confirm-action-modal" class="modal-backdrop" style="display: none;">
+    <div class="modal-card confirm-modal-card" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-message">
+      <h3 id="confirm-modal-message" class="confirm-modal-message">初期サンプル原稿に戻しますか？</h3>
+      <div class="confirm-modal-actions">
+        <button type="button" id="btn-confirm-modal-yes" class="btn-primary-export">はい</button>
+        <button type="button" id="btn-confirm-modal-no" class="btn-secondary">いいえ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- トースト通知 -->
+  <div id="status-toast" class="status-toast"></div>
+
+  <!-- モジュールスクリプト読み込み（file:// 直開きでも HTTP サーバーでも完全動作） -->
+  <script src="js/state.js"></script>
+  <script src="js/counter.js"></script>
+  <script src="js/typesetter.js"></script>
+  <script src="js/exporters.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
