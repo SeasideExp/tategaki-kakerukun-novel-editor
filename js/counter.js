@@ -54,9 +54,11 @@
     // ［＃...］（青空文庫形式の注記・制御記号）を除去
     cleaned = cleaned.replace(/[［\[][＃#][^］\]]*[］\]]/g, '');
 
-    // [改ページ] / ［改ページ］ / [改丁] / ［改丁］ 等を除去
-    // 組版側（typesetter.js）と同じく全角コロンの ［改丁：奇数］ も制御タグとして扱う
-    cleaned = cleaned.replace(/[［\[](?:改ページ|改頁|改丁(?:[:：](?:奇数|偶数))?)[］\]]/g, '');
+    // [改ページ] / ［改ページ］ / [改丁] / ［改丁：奇数］ / [連動区切り] 等を除去
+    cleaned = cleaned.replace(
+      /[［\[](?:改ページ|改頁|連動区切り|改丁(?:[:：](?:奇数|偶数))?)[］\]]/g,
+      ''
+    );
 
     // [縦中横:XXX] または ［縦中横：XXX］ は中身のXXXだけ残す
     cleaned = cleaned.replace(/[［\[]縦中横[:：]([^］\]]+)[］\]]/g, '$1');
@@ -92,28 +94,57 @@
 
   /**
    * ページ配列に対する集計を行う
+   * ※ページの切れ目（ページ間の境界）を1文字として加算しないよう、各ページの文字数を純粋合算して統一する
    */
   function calculatePagesStats(pages, selectedPageIds) {
     const list = Array.isArray(pages) ? pages : [];
     const selectedSet = new Set(Array.isArray(selectedPageIds) ? selectedPageIds : []);
 
-    const totalText = list.map(extractPageRawText).join('\n');
-    const totalStats = analyzeTextCounts(totalText);
-
-    const selectedPages = list.filter(function (p) {
-      return selectedSet.has(p.id);
-    });
-    const selectedText = selectedPages.map(extractPageRawText).join('\n');
-    const selectedStats = analyzeTextCounts(selectedText);
-
     const perPageStats = {};
+    const totalStats = {
+      rawCount: 0,
+      noSpaceNewlineCount: 0,
+      effectiveCount: 0,
+      effectiveWithSpaceCount: 0,
+      manuscriptSheets400: 0
+    };
+    const selectedStats = {
+      rawCount: 0,
+      noSpaceNewlineCount: 0,
+      effectiveCount: 0,
+      effectiveWithSpaceCount: 0,
+      manuscriptSheets400: 0
+    };
+    let selectedPageCount = 0;
+
     list.forEach(function (p) {
-      perPageStats[p.id] = analyzeTextCounts(extractPageRawText(p));
+      const st = analyzeTextCounts(extractPageRawText(p));
+      perPageStats[p.id] = st;
+
+      totalStats.rawCount += st.rawCount;
+      totalStats.noSpaceNewlineCount += st.noSpaceNewlineCount;
+      totalStats.effectiveCount += st.effectiveCount;
+      totalStats.effectiveWithSpaceCount += st.effectiveWithSpaceCount;
+
+      if (selectedSet.has(p.id)) {
+        selectedPageCount++;
+        selectedStats.rawCount += st.rawCount;
+        selectedStats.noSpaceNewlineCount += st.noSpaceNewlineCount;
+        selectedStats.effectiveCount += st.effectiveCount;
+        selectedStats.effectiveWithSpaceCount += st.effectiveWithSpaceCount;
+      }
     });
+
+    totalStats.manuscriptSheets400 =
+      totalStats.effectiveCount > 0 ? Math.ceil((totalStats.effectiveCount / 400) * 10) / 10 : 0;
+    selectedStats.manuscriptSheets400 =
+      selectedStats.effectiveCount > 0
+        ? Math.ceil((selectedStats.effectiveCount / 400) * 10) / 10
+        : 0;
 
     return {
       totalPageCount: list.length,
-      selectedPageCount: selectedPages.length,
+      selectedPageCount: selectedPageCount,
       total: totalStats,
       selected: selectedStats,
       perPage: perPageStats
